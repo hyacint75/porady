@@ -49,6 +49,16 @@ class ExportMixin:
             file.write(f"DATUM: {self.format_czech_date(meeting[1])}\n")
             file.write("=" * 40 + "\n\n")
 
+            general_info = self.fetch_export_general_info()
+            file.write("VŠEOBECNÉ INFORMACE:\n")
+            file.write("-" * 40 + "\n")
+            if general_info:
+                for row in general_info:
+                    file.write(f"- {row['info_text']}\n")
+            else:
+                file.write("Bez všeobecných informací.\n")
+            file.write("\n")
+
             file.write("BODY PROGRAMU / ÚKOLY:\n")
             file.write("-" * 40 + "\n")
             for row in self.all_agenda_data:
@@ -63,6 +73,9 @@ class ExportMixin:
                     )
                     file.write(f"  {status} {row['description']}{meta}\n")
 
+            self.write_record_txt_section(file, "NAŘÍZENÍ", self.fetch_export_orders())
+            self.write_record_txt_section(file, "POŽADAVKY", self.fetch_export_requirements())
+
             file.write("\n\nZÁPIS:\n")
             file.write("-" * 40 + "\n")
             file.write(self.text_notes.get(1.0, tk.END).strip())
@@ -74,6 +87,9 @@ class ExportMixin:
         notes = self.format_notes_for_html(self.text_notes.get(1.0, tk.END).strip())
         agenda_html = self.build_agenda_html()
         progress_html = self.build_progress_html()
+        general_info_html = self.build_general_info_html()
+        orders_html = self.build_record_list_html("Nařízení", self.fetch_export_orders())
+        requirements_html = self.build_record_list_html("Požadavky", self.fetch_export_requirements())
 
         document = f"""<!doctype html>
 <html lang="cs">
@@ -205,6 +221,24 @@ class ExportMixin:
       color: var(--muted);
       font-size: 12px;
     }}
+    .record-list {{
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      border: 1px solid var(--border);
+    }}
+    .record-list li {{
+      padding: 10px 12px;
+      border-bottom: 1px solid #edf1f5;
+    }}
+    .record-list li:last-child {{ border-bottom: 0; }}
+    .record-title {{ font-weight: 700; }}
+    .record-meta {{
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+    }}
     .resolved {{ color: var(--success); }}
     .open {{ color: var(--muted); }}
     .overdue {{ color: var(--danger); font-weight: 700; }}
@@ -247,6 +281,11 @@ class ExportMixin:
     </header>
 
     <section>
+      <h2>Všeobecné informace</h2>
+      {general_info_html}
+    </section>
+
+    <section>
       <h2>Přehled plnění</h2>
       {progress_html}
     </section>
@@ -262,6 +301,16 @@ class ExportMixin:
     </section>
 
     <section>
+      <h2>Nařízení</h2>
+      {orders_html}
+    </section>
+
+    <section>
+      <h2>Požadavky</h2>
+      {requirements_html}
+    </section>
+
+    <section>
       <h2>Zápis z porady</h2>
       <div class="notes">{notes}</div>
     </section>
@@ -271,6 +320,100 @@ class ExportMixin:
 """
         with open(filepath, "w", encoding="utf-8") as file:
             file.write(document)
+
+    def fetch_export_general_info(self):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT info_text, created_at
+               FROM meeting_general_info
+               WHERE meeting_id=? AND COALESCE(is_invalid, 0)=0
+               ORDER BY datetime(created_at), id""",
+            (self.current_id,),
+        )
+        return [{"info_text": row[0] or "", "created_at": row[1] or ""} for row in c.fetchall()]
+
+
+    def fetch_export_records(self, table_name):
+        c = self.conn.cursor()
+        c.execute(
+            f"""SELECT description, owner, due_date, is_resolved
+                FROM {table_name}
+                WHERE meeting_id=?
+                ORDER BY COALESCE(is_resolved, 0), id""",
+            (self.current_id,),
+        )
+        records = []
+        for description, owner, due_date, is_resolved in c.fetchall():
+            status_text, status_tag = self.get_record_status(due_date, is_resolved)
+            records.append(
+                {
+                    "description": description or "",
+                    "owner": owner or "",
+                    "due_date": due_date or "",
+                    "status_text": status_text,
+                    "status_tag": status_tag,
+                }
+            )
+        return records
+
+
+    def fetch_export_orders(self):
+        return self.fetch_export_records("meeting_orders")
+
+
+    def fetch_export_requirements(self):
+        return self.fetch_export_records("meeting_requirements")
+
+
+    def write_record_txt_section(self, file, title, records):
+        file.write(f"\n\n{title}:\n")
+        file.write("-" * 40 + "\n")
+        if not records:
+            file.write(f"Bez položek v sekci {title.lower()}.\n")
+            return
+
+        for record in records:
+            meta = []
+            if record["owner"]:
+                meta.append(f"odp.: {record['owner']}")
+            if record["due_date"]:
+                meta.append(f"termín: {record['due_date']}")
+            meta.append(f"stav: {record['status_text']}")
+            file.write(f"- {record['description']} [{', '.join(meta)}]\n")
+
+
+    def build_general_info_html(self):
+        rows = self.fetch_export_general_info()
+        if not rows:
+            return "<p>Bez všeobecných informací.</p>"
+
+        items = []
+        for row in rows:
+            created_at = self.format_general_info_timestamp(row["created_at"])
+            meta = f'<span class="record-meta">Zadáno: {html.escape(created_at)}</span>' if created_at else ""
+            items.append(f'<li><span class="record-title">{html.escape(row["info_text"])}</span>{meta}</li>')
+        return f'<ul class="record-list">{"".join(items)}</ul>'
+
+
+    def build_record_list_html(self, title, records):
+        if not records:
+            return f"<p>Bez položek v sekci {html.escape(title.lower())}.</p>"
+
+        items = []
+        for record in records:
+            meta_parts = [f"Stav: {html.escape(record['status_text'])}"]
+            if record["owner"]:
+                meta_parts.append(f"Odpovědnost: {html.escape(record['owner'])}")
+            if record["due_date"]:
+                meta_parts.append(f"Termín: {html.escape(record['due_date'])}")
+            items.append(
+                '<li>'
+                f'<span class="status {record["status_tag"]}">{"✓" if record["status_tag"] == "resolved" else "○"}</span>'
+                f'<span class="record-title">{html.escape(record["description"])}</span>'
+                f'<span class="record-meta">{" | ".join(meta_parts)}</span>'
+                '</li>'
+            )
+        return f'<ul class="record-list">{"".join(items)}</ul>'
 
 
     def build_progress_html(self):

@@ -101,10 +101,7 @@ class TaskOverviewMixin:
         tree.column("meeting", width=190, anchor="w")
         tree.column("point", width=150, anchor="w")
         tree.column("description", width=390, anchor="w")
-        tree.tag_configure("resolved", foreground=self.COLORS["success"])
-        tree.tag_configure("overdue", foreground=self.COLORS["danger"])
-        tree.tag_configure("today", foreground=self.COLORS["warning"])
-        tree.tag_configure("no_due", foreground=self.COLORS["muted"])
+        self.configure_status_tags(tree)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -241,9 +238,7 @@ class TaskOverviewMixin:
         tree.column("meeting", width=190, anchor="w")
         tree.column("point", width=150, anchor="w")
         tree.column("description", width=360, anchor="w")
-        tree.tag_configure("overdue", foreground=self.COLORS["danger"])
-        tree.tag_configure("today", foreground=self.COLORS["warning"])
-        tree.tag_configure("no_due", foreground=self.COLORS["muted"])
+        self.configure_status_tags(tree)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -525,7 +520,7 @@ class TaskOverviewMixin:
             return "Po termínu", "overdue"
         if parsed_due == today:
             return "Dnes", "today"
-        return "Otevřeno", ""
+        return "Otevřeno", "open"
 
 
     def populate_task_overview(self, tree, owner, overdue_only, count_label, search_text=""):
@@ -750,6 +745,7 @@ class TaskOverviewMixin:
                 ),
             )
             self.commit_database()
+            self.refresh_dashboard_summary()
             self.refresh_item_description_choices()
             self.refresh_owner_choices()
             if self.current_id == meeting_id:

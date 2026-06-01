@@ -100,10 +100,7 @@ class OrderMixin:
         tree.column("owner", width=140, anchor="w", stretch=False)
         tree.column("meeting", width=220, anchor="w")
         tree.column("description", width=500, anchor="w")
-        tree.tag_configure("resolved", foreground=self.COLORS["success"])
-        tree.tag_configure("overdue", foreground=self.COLORS["danger"])
-        tree.tag_configure("today", foreground=self.COLORS["warning"])
-        tree.tag_configure("no_due", foreground=self.COLORS["muted"])
+        self.configure_status_tags(tree)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -251,21 +248,7 @@ class OrderMixin:
             if search_text and search_text not in haystack:
                 continue
 
-            if is_done:
-                status_text = "Splněno"
-                tag = "resolved"
-            elif is_overdue:
-                status_text = "Po termínu"
-                tag = "overdue"
-            elif is_today:
-                status_text = "Dnes"
-                tag = "today"
-            elif not parsed_due:
-                status_text = "Bez termínu"
-                tag = "no_due"
-            else:
-                status_text = "Otevřeno"
-                tag = ""
+            status_text, tag = self.get_record_status(due_date, is_resolved)
 
             orders.append(
                 {
@@ -520,6 +503,7 @@ class OrderMixin:
                     ),
                 )
             self.commit_database()
+            self.refresh_dashboard_summary()
             if refresh_callback:
                 refresh_callback()
             dialog.destroy()
@@ -551,6 +535,7 @@ class OrderMixin:
         c = self.conn.cursor()
         c.execute("DELETE FROM meeting_orders WHERE id=?", (int(selection[0]),))
         self.commit_database()
+        self.refresh_dashboard_summary()
         if refresh_callback:
             refresh_callback()
 

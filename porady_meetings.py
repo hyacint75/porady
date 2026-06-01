@@ -151,6 +151,8 @@ class MeetingMixin:
         self.owner_progress_data = []
         self.progress_total = {"done": 0, "total": 0}
         self.active_point_id = None
+        if hasattr(self, "dashboard_labels"):
+            self.refresh_dashboard_summary()
         self.lbl_title.config(text="Vyberte poradu ze seznamu")
         self.lbl_subtitle.config(text="Zápis a agenda se zobrazí po výběru porady.")
         self.lbl_agenda_count.config(text="Dvojklikem označíte bod jako vyřešený.")
@@ -401,6 +403,7 @@ class MeetingMixin:
             self.lbl_progress_summary.config(text="Bez bodů programu.")
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
+        self.refresh_dashboard_summary()
         self.ensure_active_agenda_point()
 
         self.btn_save.config(state=tk.NORMAL)
@@ -600,8 +603,11 @@ class MeetingMixin:
                 for point_id in point_ids:
                     c.execute("DELETE FROM agenda_items WHERE point_id=?", (point_id,))
                 c.execute("DELETE FROM agenda_points WHERE meeting_id=?", (self.current_id,))
-                c.execute("DELETE FROM meetings WHERE id=?", (self.current_id,))
                 c.execute("DELETE FROM agenda WHERE meeting_id=?", (self.current_id,))
+                c.execute("DELETE FROM meeting_orders WHERE meeting_id=?", (self.current_id,))
+                c.execute("DELETE FROM meeting_requirements WHERE meeting_id=?", (self.current_id,))
+                c.execute("DELETE FROM meeting_general_info WHERE meeting_id=?", (self.current_id,))
+                c.execute("DELETE FROM meetings WHERE id=?", (self.current_id,))
                 self.commit_database()
                 self.current_id = None
                 self.load_meetings()

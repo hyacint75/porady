@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import sqlite3
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -61,6 +62,56 @@ class DialogMixin:
             "Sdílená databáze",
             "Cesta ke sdílené databázi byla uložena. Restartujte aplikaci, aby se změna použila.",
         )
+
+
+    def restore_database_backup(self):
+        if not self.require_admin():
+            return
+
+        backup_path = filedialog.askopenfilename(
+            title="Obnovit databázi ze zálohy",
+            initialdir=str(self.backup_dir),
+            filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
+        )
+        if not backup_path:
+            return
+
+        selected_path = Path(backup_path)
+        if not selected_path.exists():
+            messagebox.showwarning("Obnova zálohy", "Vybraná záloha neexistuje.")
+            return
+        if self.paths_match(selected_path, self.db_path):
+            messagebox.showwarning("Obnova zálohy", "Vybraný soubor je aktuální databáze, ne záloha.")
+            return
+        if not messagebox.askyesno(
+            "Obnova zálohy",
+            "Opravdu chcete nahradit aktuální databázi vybranou zálohou?\n\n"
+            "Před obnovou se ještě vytvoří bezpečnostní záloha aktuální databáze.",
+        ):
+            return
+
+        try:
+            if self.current_id and self.notes_dirty:
+                self.save_notes(show_message=False)
+            self.create_database_backup("before_restore")
+            self.conn.close()
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(selected_path, self.db_path)
+            self.conn = sqlite3.connect(self.db_path, timeout=30)
+            self.configure_database_connection()
+            self.create_tables()
+            self.current_id = None
+            self.notes_dirty = False
+            self.load_meetings()
+            self.refresh_dashboard_summary()
+            messagebox.showinfo("Obnova zálohy", "Databáze byla obnovena ze zálohy.")
+        except (OSError, sqlite3.Error) as error:
+            try:
+                self.conn = sqlite3.connect(self.db_path, timeout=30)
+                self.configure_database_connection()
+            except sqlite3.Error:
+                pass
+            messagebox.showerror("Obnova zálohy", f"Databázi se nepodařilo obnovit:\n{error}")
 
 
     def create_dialog(self, title, width, height, min_width=None, min_height=None, modal=False):
@@ -138,7 +189,7 @@ class DialogMixin:
 
 
     def show_data_settings(self):
-        dialog, content = self.create_dialog("Data a zálohy", 720, 350, 580, 300)
+        dialog, content = self.create_dialog("Data a zálohy", 720, 390, 580, 330)
         self.create_dialog_header(
             content,
             "Data a zálohy",
@@ -170,6 +221,14 @@ class DialogMixin:
 
         self.create_button(
             actions,
+            text="Obnovit ze zálohy",
+            command=self.restore_database_backup,
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
             text="Zavřít",
             command=dialog.destroy,
             variant="secondary",
@@ -177,15 +236,68 @@ class DialogMixin:
 
 
     def show_about(self):
-        dialog, content = self.create_dialog("O aplikaci", 600, 330, 520, 280)
+        dialog, content = self.create_dialog("O aplikaci", 720, 520, 620, 440)
         self.create_dialog_header(
             content,
             f"Správce porad {self.APP_VERSION}",
-            "Aplikace pro evidenci porad, bodů programu, úkolů, odpovědností, termínů a zápisů.",
+            "Aplikace pro evidenci porad, zápisů, bodů programu a navazujících rozhodnutí.",
+            accent=self.COLORS["primary"],
         )
 
-        self.create_path_row(content, "Databáze", self.db_path, lambda: self.open_folder(self.db_path.parent))
-        self.create_path_row(content, "Zálohy", self.backup_dir, lambda: self.open_folder(self.backup_dir))
+        sections = (
+            (
+                "Co aplikace eviduje",
+                "Porady, zápisy, body programu, úkoly, všeobecné informace, samostatná nařízení a požadavky.",
+            ),
+            (
+                "Názvosloví",
+                "Úkol je položka v bodu programu. Nařízení je samostatné rozhodnutí z porady. Požadavek je samostatný podnět, ze kterého lze podle potřeby vytvořit úkol.",
+            ),
+            (
+                "Režimy práce",
+                "Admin může vytvářet a upravovat záznamy. Uživatel v režimu jen pro čtení může data procházet bez rizika nechtěných změn.",
+            ),
+            (
+                "Přehledy",
+                "Samostatné přehledy pomáhají sledovat otevřené úkoly, nařízení, požadavky, termíny a odpovědnosti napříč poradami.",
+            ),
+            (
+                "Data a zálohy",
+                "Aplikace používá lokální nebo sdílenou SQLite databázi a umí vytvářet zálohy před vybranými zásahy.",
+            ),
+        )
+
+        info_frame = tk.Frame(content, bg=self.COLORS["panel"])
+        info_frame.pack(fill=tk.BOTH, expand=True)
+
+        for title, text in sections:
+            tk.Label(
+                info_frame,
+                text=title,
+                font=(self.FONT, 10, "bold"),
+                bg=self.COLORS["panel"],
+                fg=self.COLORS["primary"],
+                anchor="w",
+            ).pack(fill=tk.X, pady=(0, 3))
+            tk.Label(
+                info_frame,
+                text=text,
+                font=(self.FONT, 10),
+                bg=self.COLORS["panel"],
+                fg=self.COLORS["text"],
+                anchor="w",
+                justify=tk.LEFT,
+                wraplength=620,
+            ).pack(fill=tk.X, pady=(0, 14))
+
+        tk.Label(
+            info_frame,
+            text=f"Verze aplikace: {self.APP_VERSION}",
+            font=(self.FONT, 9, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["muted"],
+            anchor="w",
+        ).pack(fill=tk.X, pady=(4, 0))
 
         actions = tk.Frame(content, bg=self.COLORS["panel"])
         actions.pack(fill=tk.X, pady=(18, 0))

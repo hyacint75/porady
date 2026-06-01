@@ -1,12 +1,11 @@
-# PyInstaller dočasné složky a výstupy
+# Dočasné složky a výstupy PyInstalleru
 build/
 build_*/
 dist/
 
-# Instalační soubory systému Python
+# Sestavené a instalační EXE soubory
 *.exe
 
-
-# Cache soubory Pythonu (vytváří se automaticky při spuštění kódu)
+# Cache soubory Pythonu
 __pycache__/
 *.pyc

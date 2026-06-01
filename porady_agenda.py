@@ -32,6 +32,28 @@ class AgendaMixin:
         parsed_due_date = self.parse_due_date(due_date)
         return bool(parsed_due_date and parsed_due_date < datetime.now().date())
 
+    def get_record_status(self, due_date, is_resolved):
+        if is_resolved == 1:
+            return "Splněno", "resolved"
+
+        parsed_due_date = self.parse_due_date(due_date)
+        if not parsed_due_date:
+            return "Bez termínu", "no_due"
+
+        today = datetime.now().date()
+        if parsed_due_date < today:
+            return "Po termínu", "overdue"
+        if parsed_due_date == today:
+            return "Dnes", "today"
+        return "Otevřeno", "open"
+
+    def configure_status_tags(self, tree):
+        tree.tag_configure("resolved", foreground=self.COLORS["success"])
+        tree.tag_configure("overdue", foreground=self.COLORS["danger"])
+        tree.tag_configure("today", foreground=self.COLORS["warning"])
+        tree.tag_configure("no_due", foreground=self.COLORS["muted"])
+        tree.tag_configure("open", foreground=self.COLORS["primary"])
+
 
     def get_item_form_values(self):
         description = self.entry_new_item.get().strip()
@@ -386,7 +408,7 @@ class AgendaMixin:
             c.execute(
                 """SELECT info_text, created_at, is_invalid, invalidated_at
                    FROM meeting_general_info
-                   WHERE meeting_id=?
+                   WHERE meeting_id=? AND COALESCE(is_invalid, 0)=0
                    ORDER BY datetime(created_at), id""",
                 (self.current_id,),
             )
@@ -422,12 +444,47 @@ class AgendaMixin:
                     )
                     transferred_count += 1
 
+            c.execute(
+                """SELECT description, owner, due_date, created_at
+                   FROM meeting_orders
+                   WHERE meeting_id=? AND COALESCE(is_resolved, 0)=0
+                   ORDER BY id""",
+                (self.current_id,),
+            )
+            order_count = 0
+            for description, owner, due_date, created_at in c.fetchall():
+                c.execute(
+                    """INSERT INTO meeting_orders
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
+                       VALUES (?, ?, ?, ?, 0, ?, '')""",
+                    (new_meeting_id, description, owner, due_date, created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                )
+                order_count += 1
+
+            c.execute(
+                """SELECT description, owner, due_date, created_at
+                   FROM meeting_requirements
+                   WHERE meeting_id=? AND COALESCE(is_resolved, 0)=0
+                   ORDER BY id""",
+                (self.current_id,),
+            )
+            requirement_count = 0
+            for description, owner, due_date, created_at in c.fetchall():
+                c.execute(
+                    """INSERT INTO meeting_requirements
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
+                       VALUES (?, ?, ?, ?, 0, ?, '')""",
+                    (new_meeting_id, description, owner, due_date, created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                )
+                requirement_count += 1
+
             self.commit_database()
             self.current_id = new_meeting_id
             self.load_meetings()
             self.load_meeting_details()
             messagebox.showinfo(
                 "Hotovo",
-                f"Nová porada byla vytvořena. Přenesen zápis a {transferred_count} nevyřešených položek.",
+                "Nová porada byla vytvořena.\n\n"
+                f"Přeneseno: {transferred_count} úkolů, {order_count} nařízení, {requirement_count} požadavků.",
             )
 

@@ -25,7 +25,7 @@ from porady_schema import SchemaMixin
 
 
 class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.26"
+    APP_VERSION = "4.28"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"

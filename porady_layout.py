@@ -283,6 +283,49 @@ class LayoutMixin:
         )
         self.btn_edit_date.pack(side=tk.RIGHT, padx=(16, 0))
 
+        self.dashboard_frame = tk.Frame(self.content, bg=self.COLORS["panel"])
+        self.dashboard_frame.pack(fill=tk.X, pady=(0, 18))
+        self.dashboard_labels = {}
+        dashboard_items = (
+            ("open_tasks", "Úkoly", self.COLORS["page_tasks_accent"]),
+            ("open_orders", "Nařízení", self.COLORS["page_orders_accent"]),
+            ("open_requirements", "Požadavky", self.COLORS["page_requirements_accent"]),
+            ("due_today", "Dnes", self.COLORS["warning"]),
+            ("overdue", "Po termínu", self.COLORS["danger"]),
+        )
+        for column, (key, title, color) in enumerate(dashboard_items):
+            self.dashboard_frame.columnconfigure(column, weight=1, uniform="dashboard")
+            tile = tk.Frame(
+                self.dashboard_frame,
+                bg=self.COLORS["panel_soft"],
+                highlightthickness=1,
+                highlightbackground=self.COLORS["border"],
+                padx=12,
+                pady=8,
+            )
+            tile.grid(row=0, column=column, sticky="ew", padx=(0, 8 if column < len(dashboard_items) - 1 else 0))
+            tk.Frame(tile, width=4, bg=color).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+            text_frame = tk.Frame(tile, bg=self.COLORS["panel_soft"])
+            text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            value_label = tk.Label(
+                text_frame,
+                text="0",
+                font=(self.FONT, 16, "bold"),
+                bg=self.COLORS["panel_soft"],
+                fg=color,
+                anchor="w",
+            )
+            value_label.pack(fill=tk.X)
+            tk.Label(
+                text_frame,
+                text=title,
+                font=(self.FONT, 9),
+                bg=self.COLORS["panel_soft"],
+                fg=self.COLORS["muted"],
+                anchor="w",
+            ).pack(fill=tk.X)
+            self.dashboard_labels[key] = value_label
+
         self.detail_tabs = ttk.Notebook(self.content)
         self.detail_tabs.pack(fill=tk.BOTH, expand=True)
         self.detail_tabs.bind("<<NotebookTabChanged>>", lambda event: self.draw_progress_overview())
@@ -621,6 +664,46 @@ class LayoutMixin:
             bg=background,
             fg=color or self.COLORS["text"],
         ).pack(anchor="w")
+
+    def refresh_dashboard_summary(self):
+        if not hasattr(self, "dashboard_labels"):
+            return
+
+        summary = {
+            "open_tasks": 0,
+            "open_orders": 0,
+            "open_requirements": 0,
+            "due_today": 0,
+            "overdue": 0,
+        }
+        today = self.parse_due_date(self.get_today_due_date())
+        c = self.conn.cursor()
+
+        c.execute("SELECT due_date, is_resolved FROM agenda_items")
+        for due_date, is_resolved in c.fetchall():
+            if is_resolved == 1:
+                continue
+            summary["open_tasks"] += 1
+            parsed_due = self.parse_due_date(due_date)
+            if parsed_due == today:
+                summary["due_today"] += 1
+            elif parsed_due and parsed_due < today:
+                summary["overdue"] += 1
+
+        for table_name, key in (("meeting_orders", "open_orders"), ("meeting_requirements", "open_requirements")):
+            c.execute(f"SELECT due_date, is_resolved FROM {table_name}")
+            for due_date, is_resolved in c.fetchall():
+                if is_resolved == 1:
+                    continue
+                summary[key] += 1
+                parsed_due = self.parse_due_date(due_date)
+                if parsed_due == today:
+                    summary["due_today"] += 1
+                elif parsed_due and parsed_due < today:
+                    summary["overdue"] += 1
+
+        for key, value in summary.items():
+            self.dashboard_labels[key].config(text=str(value))
 
 
     def apply_permission_state(self):
