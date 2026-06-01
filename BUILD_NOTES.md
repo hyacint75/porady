@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.34`
-- Spec: `porady_4_34_rolovani_levych_tlacitek.spec`
-- EXE: `dist/porady_4_34_rolovani_levych_tlacitek.exe`
+- Verze: `4.35`
+- Spec: `porady_4_35_oprava_rolovani_tlacitek.spec`
+- EXE: `dist/porady_4_35_oprava_rolovani_tlacitek.exe`

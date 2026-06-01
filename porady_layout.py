@@ -178,8 +178,8 @@ class LayoutMixin:
         )
         self.lbl_meeting_count.pack(fill=tk.X, pady=(8, 0))
 
-        actions_outer = tk.Frame(self.left_frame, bg=self.COLORS["sidebar"], padx=16, pady=(0, 18))
-        actions_outer.pack(fill=tk.X)
+        actions_outer = tk.Frame(self.left_frame, bg=self.COLORS["sidebar"], padx=16)
+        actions_outer.pack(fill=tk.X, pady=(0, 18))
 
         actions_canvas = tk.Canvas(
             actions_outer,
