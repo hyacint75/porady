@@ -326,13 +326,13 @@ class LayoutMixin:
         self.dashboard_frame.pack(fill=tk.X, pady=(0, 18))
         self.dashboard_labels = {}
         dashboard_items = (
-            ("open_tasks", "Úkoly", self.COLORS["page_tasks_accent"]),
-            ("open_orders", "Nařízení", self.COLORS["page_orders_accent"]),
-            ("open_requirements", "Požadavky", self.COLORS["page_requirements_accent"]),
-            ("due_today", "Dnes", self.COLORS["warning"]),
-            ("overdue", "Po termínu", self.COLORS["danger"]),
+            ("open_tasks", "Úkoly", self.COLORS["page_tasks_accent"], "tasks"),
+            ("open_orders", "Nařízení", self.COLORS["page_orders_accent"], "orders"),
+            ("open_requirements", "Požadavky", self.COLORS["page_requirements_accent"], "requirements"),
+            ("due_today", "Dnes", self.COLORS["warning"], "today"),
+            ("overdue", "Po termínu", self.COLORS["danger"], "overdue"),
         )
-        for column, (key, title, color) in enumerate(dashboard_items):
+        for column, (key, title, color, filter_type) in enumerate(dashboard_items):
             self.dashboard_frame.columnconfigure(column, weight=1, uniform="dashboard")
             tile = tk.Frame(
                 self.dashboard_frame,
@@ -341,9 +341,11 @@ class LayoutMixin:
                 highlightbackground=self.COLORS["border"],
                 padx=12,
                 pady=8,
+                cursor="hand2",
             )
             tile.grid(row=0, column=column, sticky="ew", padx=(0, 8 if column < len(dashboard_items) - 1 else 0))
-            tk.Frame(tile, width=4, bg=color).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+            accent = tk.Frame(tile, width=4, bg=color, cursor="hand2")
+            accent.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
             text_frame = tk.Frame(tile, bg=self.COLORS["panel_soft"])
             text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
             value_label = tk.Label(
@@ -353,17 +355,25 @@ class LayoutMixin:
                 bg=self.COLORS["panel_soft"],
                 fg=color,
                 anchor="w",
+                cursor="hand2",
             )
             value_label.pack(fill=tk.X)
-            tk.Label(
+            title_label = tk.Label(
                 text_frame,
                 text=title,
                 font=(self.FONT, 9),
                 bg=self.COLORS["panel_soft"],
                 fg=self.COLORS["muted"],
                 anchor="w",
-            ).pack(fill=tk.X)
+                cursor="hand2",
+            )
+            title_label.pack(fill=tk.X)
             self.dashboard_labels[key] = value_label
+            widgets = (tile, accent, text_frame, value_label, title_label)
+            for widget in widgets:
+                widget.bind("<Button-1>", lambda event, selected_filter=filter_type: self.show_open_items_overview(selected_filter))
+                widget.bind("<Enter>", lambda event, current_tile=tile: current_tile.config(bg="#eef4ff"))
+                widget.bind("<Leave>", lambda event, current_tile=tile: current_tile.config(bg=self.COLORS["panel_soft"]))
 
         quick_filters = tk.Frame(self.content, bg=self.COLORS["panel"])
         quick_filters.pack(fill=tk.X, pady=(0, 14))

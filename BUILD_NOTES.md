@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.29`
-- Spec: `porady_4_29_dalsi_vylepseni_1_8.spec`
-- EXE: `dist/porady_4_29_dalsi_vylepseni_1_8.exe`
+- Verze: `4.30`
+- Spec: `porady_4_30_aktivni_dashboard.spec`
+- EXE: `dist/porady_4_30_aktivni_dashboard.exe`

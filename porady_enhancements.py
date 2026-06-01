@@ -192,11 +192,14 @@ class EnhancementMixin:
                WHERE COALESCE(agenda_items.is_resolved, 0)=0"""
         )
         for item_id, description, owner, due_date, point_title, meeting_id, meeting_title, meeting_date in c.fetchall():
-            if include_record(due_date, owner):
+            if filter_type in ("all", "today", "week", "overdue", "no_owner", "tasks") and include_record(due_date, owner):
                 status, tag = self.get_record_status(due_date, 0)
                 records.append(("Úkol", item_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag))
 
-        for label, table_name in (("Nařízení", "meeting_orders"), ("Požadavek", "meeting_requirements")):
+        for label, table_name, type_filter in (
+            ("Nařízení", "meeting_orders", "orders"),
+            ("Požadavek", "meeting_requirements", "requirements"),
+        ):
             c.execute(
                 f"""SELECT {table_name}.id, {table_name}.description, {table_name}.owner, {table_name}.due_date,
                            meetings.id, meetings.title, meetings.date
@@ -205,7 +208,7 @@ class EnhancementMixin:
                     WHERE COALESCE({table_name}.is_resolved, 0)=0"""
             )
             for record_id, description, owner, due_date, meeting_id, meeting_title, meeting_date in c.fetchall():
-                if include_record(due_date, owner):
+                if filter_type in ("all", "today", "week", "overdue", "no_owner", type_filter) and include_record(due_date, owner):
                     status, tag = self.get_record_status(due_date, 0)
                     records.append((label, record_id, meeting_id, meeting_title or "", meeting_date or "", "", description, owner, due_date, status, tag))
 
@@ -220,6 +223,9 @@ class EnhancementMixin:
             "week": "Položky na tento týden",
             "overdue": "Položky po termínu",
             "no_owner": "Položky bez odpovědnosti",
+            "tasks": "Aktivní úkoly",
+            "orders": "Aktivní nařízení",
+            "requirements": "Aktivní požadavky",
             "all": "Otevřené položky",
         }
         dialog, content = self.create_dialog(titles.get(filter_type, "Otevřené položky"), 1180, 680, 900, 500)
