@@ -33,6 +33,11 @@ class SchemaMixin:
                      (id INTEGER PRIMARY KEY, meeting_id INTEGER, description TEXT, owner TEXT,
                       due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT)"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS meeting_general_info
+                     (id INTEGER PRIMARY KEY, meeting_id INTEGER, info_text TEXT, created_at TEXT,
+                      is_invalid INTEGER, invalidated_at TEXT)"""
+        )
         c.execute("CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_meeting_id ON agenda(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_points_meeting_id ON agenda_points(meeting_id)")
@@ -45,11 +50,15 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_meeting_id ON meeting_requirements(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_owner ON meeting_requirements(owner)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_due_date ON meeting_requirements(due_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_general_info_meeting_id ON meeting_general_info(meeting_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_general_info_created_at ON meeting_general_info(created_at)")
         self.commit_database()
         self.ensure_meeting_columns()
+        self.ensure_general_info_columns()
         self.ensure_agenda_item_columns()
         self.ensure_meeting_order_columns()
         self.ensure_meeting_requirement_columns()
+        self.migrate_general_info_column()
         self.migrate_legacy_agenda()
 
 
@@ -94,6 +103,40 @@ class SchemaMixin:
         columns = {row[1] for row in c.fetchall()}
         if "general_info" not in columns:
             c.execute("ALTER TABLE meetings ADD COLUMN general_info TEXT")
+        self.commit_database()
+
+
+    def ensure_general_info_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(meeting_general_info)")
+        columns = {row[1] for row in c.fetchall()}
+        if "created_at" not in columns:
+            c.execute("ALTER TABLE meeting_general_info ADD COLUMN created_at TEXT")
+        if "is_invalid" not in columns:
+            c.execute("ALTER TABLE meeting_general_info ADD COLUMN is_invalid INTEGER DEFAULT 0")
+        if "invalidated_at" not in columns:
+            c.execute("ALTER TABLE meeting_general_info ADD COLUMN invalidated_at TEXT")
+        self.commit_database()
+
+
+    def migrate_general_info_column(self):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT id, general_info FROM meetings
+               WHERE general_info IS NOT NULL AND TRIM(general_info) <> ''"""
+        )
+        rows = c.fetchall()
+        for meeting_id, general_info in rows:
+            c.execute("SELECT COUNT(*) FROM meeting_general_info WHERE meeting_id=?", (meeting_id,))
+            if c.fetchone()[0] == 0:
+                c.execute(
+                    """INSERT INTO meeting_general_info
+                       (meeting_id, info_text, created_at, is_invalid, invalidated_at)
+                       VALUES (?, ?, datetime('now', 'localtime'), 0, '')""",
+                    (meeting_id, general_info),
+                )
+        if rows:
+            c.execute("UPDATE meetings SET general_info='' WHERE general_info IS NOT NULL AND TRIM(general_info) <> ''")
         self.commit_database()
 
 

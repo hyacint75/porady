@@ -143,10 +143,7 @@ class MeetingMixin:
         self.text_notes.delete(1.0, tk.END)
         self.text_notes.edit_modified(False)
         self.notes_dirty = False
-        self.text_general_info.config(state=tk.NORMAL)
-        self.text_general_info.delete(1.0, tk.END)
-        self.text_general_info.edit_modified(False)
-        self.general_info_dirty = False
+        self.general_info_tree.delete(*self.general_info_tree.get_children())
         self.agenda_listbox.delete(0, tk.END)
         self.current_agenda_data = []
         self.all_agenda_data = []
@@ -161,7 +158,6 @@ class MeetingMixin:
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
         self.btn_save.config(state=tk.DISABLED)
-        self.btn_save_general_info.config(state=tk.DISABLED)
         self.btn_delete.config(state=tk.DISABLED)
         self.btn_edit_date.config(state=tk.DISABLED)
         self.btn_export.config(state=tk.DISABLED)
@@ -283,8 +279,6 @@ class MeetingMixin:
             index = selection[0]
             if self.current_id and self.notes_dirty:
                 self.save_notes(show_message=False)
-            if self.current_id and self.general_info_dirty:
-                self.save_general_info(show_message=False)
             self.current_id = self.meetings_data[index][0]
             self.active_point_id = None
             self.load_meeting_details()
@@ -315,6 +309,8 @@ class MeetingMixin:
             self.text_notes.insert(tk.END, meeting[2])
         self.text_notes.edit_modified(False)
         self.notes_dirty = False
+
+        self.load_general_info_entries()
 
         # Načtení bodů programu a jejich položek
         self.agenda_listbox.delete(0, tk.END)
@@ -446,6 +442,148 @@ class MeetingMixin:
             self.text_notes.edit_modified(False)
             if show_message:
                 messagebox.showinfo("Uloženo", "Zápis byl úspěšně uložen.")
+
+
+    def load_general_info_entries(self):
+        if not hasattr(self, "general_info_tree"):
+            return
+
+        self.general_info_tree.delete(*self.general_info_tree.get_children())
+        if not self.current_id:
+            return
+
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT id, info_text, created_at, is_invalid
+               FROM meeting_general_info
+               WHERE meeting_id=?
+               ORDER BY datetime(created_at) DESC, id DESC""",
+            (self.current_id,),
+        )
+        for info_id, info_text, created_at, is_invalid in c.fetchall():
+            tag = "invalid" if is_invalid == 1 else "valid"
+            self.general_info_tree.insert(
+                "",
+                tk.END,
+                iid=str(info_id),
+                values=(self.format_general_info_timestamp(created_at), info_text or ""),
+                tags=(tag,),
+            )
+
+
+    def format_general_info_timestamp(self, timestamp):
+        if not timestamp:
+            return ""
+        for date_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(timestamp, date_format).strftime("%d.%m.%Y %H:%M")
+            except (TypeError, ValueError):
+                continue
+        return timestamp
+
+
+    def fetch_general_info_detail(self, info_id):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT id, info_text, is_invalid
+               FROM meeting_general_info
+               WHERE id=? AND meeting_id=?""",
+            (info_id, self.current_id),
+        )
+        return c.fetchone()
+
+
+    def get_selected_general_info_id(self):
+        selection = self.general_info_tree.selection()
+        return int(selection[0]) if selection else None
+
+
+    def show_general_info_dialog(self, info_id=None):
+        if not self.require_admin():
+            return
+
+        if not self.current_id:
+            return
+
+        existing = self.fetch_general_info_detail(info_id) if info_id else None
+        title = "Upravit informaci" if existing else "Nová informace"
+        dialog, content = self.create_dialog(title, 700, 390, 560, 330, modal=True)
+        self.create_dialog_header(content, title, "Zadejte všeobecnou informaci k vybrané poradě.")
+
+        text = tk.Text(content, height=9, wrap=tk.WORD, font=(self.FONT, 10), relief=tk.SOLID, borderwidth=1)
+        text.pack(fill=tk.BOTH, expand=True)
+        if existing:
+            text.insert("1.0", existing[1] or "")
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(18, 0))
+
+        def save_info():
+            info_text = text.get("1.0", tk.END).strip()
+            if not info_text:
+                messagebox.showwarning("Všeobecné informace", "Zadejte text informace.")
+                text.focus_set()
+                return
+
+            c = self.conn.cursor()
+            if existing:
+                c.execute(
+                    "UPDATE meeting_general_info SET info_text=? WHERE id=? AND meeting_id=?",
+                    (info_text, existing[0], self.current_id),
+                )
+            else:
+                c.execute(
+                    """INSERT INTO meeting_general_info
+                       (meeting_id, info_text, created_at, is_invalid, invalidated_at)
+                       VALUES (?, ?, ?, 0, '')""",
+                    (self.current_id, info_text, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                )
+            self.commit_database()
+            self.load_general_info_entries()
+            dialog.destroy()
+
+        self.create_button(actions, text="Uložit", command=save_info, variant="primary").pack(side=tk.LEFT)
+        self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+        text.focus_set()
+
+
+    def edit_selected_general_info(self):
+        info_id = self.get_selected_general_info_id()
+        if not info_id:
+            messagebox.showwarning("Všeobecné informace", "Nejprve vyberte informaci.")
+            return
+        self.show_general_info_dialog(info_id)
+
+
+    def invalidate_selected_general_info(self):
+        if not self.require_admin():
+            return
+
+        info_id = self.get_selected_general_info_id()
+        if not info_id:
+            messagebox.showwarning("Všeobecné informace", "Nejprve vyberte informaci.")
+            return
+
+        row = self.fetch_general_info_detail(info_id)
+        if not row:
+            messagebox.showwarning("Všeobecné informace", "Vybraná informace už neexistuje.")
+            self.load_general_info_entries()
+            return
+        if row[2] == 1:
+            messagebox.showinfo("Všeobecné informace", "Vybraná informace už je zneplatněná.")
+            return
+        if not messagebox.askyesno("Zneplatnit informaci", "Opravdu chcete vybranou informaci zneplatnit?"):
+            return
+
+        c = self.conn.cursor()
+        c.execute(
+            """UPDATE meeting_general_info
+               SET is_invalid=1, invalidated_at=?
+               WHERE id=? AND meeting_id=?""",
+            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), info_id, self.current_id),
+        )
+        self.commit_database()
+        self.load_general_info_entries()
 
 
     def delete_meeting(self):

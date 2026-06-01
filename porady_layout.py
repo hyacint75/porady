@@ -2,6 +2,7 @@
 
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import ttk
 
@@ -22,13 +23,13 @@ class LayoutMixin:
             darkcolor=self.COLORS["border"],
             padding=8,
         )
+        self.general_info_font = tkfont.Font(family=self.FONT, size=10)
+        self.general_info_invalid_font = tkfont.Font(family=self.FONT, size=10, overstrike=1)
 
 
     def on_close(self):
         if self.can_edit() and self.current_id and self.notes_dirty:
             self.save_notes(show_message=False)
-        if self.can_edit() and self.current_id and self.general_info_dirty:
-            self.save_general_info(show_message=False)
         self.conn.close()
         self.root.destroy()
 
@@ -194,12 +195,14 @@ class LayoutMixin:
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
-        self.create_button(
+        self.btn_data_settings = self.create_button(
             sidebar_actions,
             text="Data a zálohy",
             command=self.show_data_settings,
             variant="secondary",
-        ).pack(fill=tk.X, pady=(0, 8))
+        )
+        if self.can_edit():
+            self.btn_data_settings.pack(fill=tk.X, pady=(0, 8))
 
         self.btn_login = self.create_button(
             sidebar_actions,
@@ -286,50 +289,60 @@ class LayoutMixin:
 
         self.create_section_header(self.general_info_tab, "Všeobecné informace")
 
-        self.general_info_frame = tk.Frame(
-            self.general_info_tab,
-            bg=self.COLORS["panel_soft"],
-            highlightthickness=1,
-            highlightbackground=self.COLORS["border"],
-            highlightcolor=self.COLORS["primary"],
-        )
+        self.general_info_frame = tk.Frame(self.general_info_tab, bg=self.COLORS["panel"])
         self.general_info_frame.pack(fill=tk.BOTH, expand=True, pady=(6, 14))
 
-        self.text_general_info = tk.Text(
+        self.general_info_tree = ttk.Treeview(
             self.general_info_frame,
-            height=10,
-            font=(self.FONT, 11),
-            wrap=tk.WORD,
-            bg=self.COLORS["panel_soft"],
-            fg=self.COLORS["text"],
-            insertbackground=self.COLORS["text"],
-            relief=tk.FLAT,
-            borderwidth=0,
-            padx=12,
-            pady=10,
-            highlightthickness=0,
+            columns=("created_at", "info"),
+            show="headings",
+            selectmode="browse",
         )
+        self.general_info_tree.heading("created_at", text="Zadáno")
+        self.general_info_tree.heading("info", text="Informace")
+        self.general_info_tree.column("created_at", width=145, anchor="w", stretch=False)
+        self.general_info_tree.column("info", width=680, anchor="w")
+        self.general_info_tree.tag_configure("valid", foreground=self.COLORS["text"], font=self.general_info_font)
+        self.general_info_tree.tag_configure("invalid", foreground=self.COLORS["muted"], font=self.general_info_invalid_font)
         self.general_info_scrollbar = ttk.Scrollbar(
             self.general_info_frame,
             orient=tk.VERTICAL,
-            command=self.text_general_info.yview,
+            command=self.general_info_tree.yview,
         )
-        self.text_general_info.configure(yscrollcommand=self.general_info_scrollbar.set)
-        self.text_general_info.bind("<<Modified>>", self.on_general_info_modified)
-        self.text_general_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.general_info_tree.configure(yscrollcommand=self.general_info_scrollbar.set)
+        self.general_info_tree.bind("<Double-1>", lambda event: self.edit_selected_general_info())
+        self.general_info_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.general_info_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         self.general_info_actions = tk.Frame(self.general_info_tab, bg=self.COLORS["panel"])
         self.general_info_actions.pack(fill=tk.X)
 
-        self.btn_save_general_info = self.create_button(
+        self.btn_add_general_info = self.create_button(
             self.general_info_actions,
-            text="Uložit informace",
-            command=self.save_general_info,
+            text="Nová informace",
+            command=lambda: self.show_general_info_dialog(),
             variant="primary",
             state=tk.DISABLED,
         )
-        self.btn_save_general_info.pack(side=tk.RIGHT)
+        self.btn_add_general_info.pack(side=tk.LEFT)
+
+        self.btn_edit_general_info = self.create_button(
+            self.general_info_actions,
+            text="Upravit vybranou",
+            command=self.edit_selected_general_info,
+            variant="secondary",
+            state=tk.DISABLED,
+        )
+        self.btn_edit_general_info.pack(side=tk.LEFT, padx=(10, 0))
+
+        self.btn_invalidate_general_info = self.create_button(
+            self.general_info_actions,
+            text="Zneplatnit vybranou",
+            command=self.invalidate_selected_general_info,
+            variant="secondary",
+            state=tk.DISABLED,
+        )
+        self.btn_invalidate_general_info.pack(side=tk.LEFT, padx=(10, 0))
 
         self.create_section_header(self.meeting_tab, "Zápis z porady")
 
@@ -609,6 +622,16 @@ class LayoutMixin:
                 fg="#dbeafe" if self.can_edit() else self.COLORS["sidebar_muted"],
             )
 
+        if hasattr(self, "btn_data_settings"):
+            if self.can_edit():
+                if not self.btn_data_settings.winfo_ismapped():
+                    pack_options = {"fill": tk.X, "pady": (0, 8)}
+                    if hasattr(self, "btn_login"):
+                        pack_options["before"] = self.btn_login
+                    self.btn_data_settings.pack(**pack_options)
+            else:
+                self.btn_data_settings.pack_forget()
+
         for button_name in (
             "btn_add_meeting",
             "btn_copy",
@@ -624,7 +647,9 @@ class LayoutMixin:
             "btn_delete",
             "btn_delete_agenda",
             "btn_save",
-            "btn_save_general_info",
+            "btn_add_general_info",
+            "btn_edit_general_info",
+            "btn_invalidate_general_info",
         ):
             button = getattr(self, button_name, None)
             if button:
@@ -641,5 +666,4 @@ class LayoutMixin:
                 widget.config(state=readonly_widget_state)
 
         self.text_notes.config(state=edit_state)
-        self.text_general_info.config(state=edit_state)
 

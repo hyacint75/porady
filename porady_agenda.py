@@ -377,8 +377,26 @@ class AgendaMixin:
         )
         if new_title:
             date_str = datetime.now().strftime("%Y-%m-%d")
-            c.execute("INSERT INTO meetings (title, date, notes) VALUES (?, ?, ?)", (new_title, date_str, old_notes or ""))
+            c.execute(
+                "INSERT INTO meetings (title, date, notes, general_info) VALUES (?, ?, ?, ?)",
+                (new_title, date_str, old_notes or "", ""),
+            )
             new_meeting_id = c.lastrowid
+
+            c.execute(
+                """SELECT info_text, created_at, is_invalid, invalidated_at
+                   FROM meeting_general_info
+                   WHERE meeting_id=?
+                   ORDER BY datetime(created_at), id""",
+                (self.current_id,),
+            )
+            for info_text, created_at, is_invalid, invalidated_at in c.fetchall():
+                c.execute(
+                    """INSERT INTO meeting_general_info
+                       (meeting_id, info_text, created_at, is_invalid, invalidated_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (new_meeting_id, info_text, created_at, is_invalid, invalidated_at),
+                )
 
             # Zkopírovat pouze body programu, které mají nevyřešené položky
             transferred_count = 0
