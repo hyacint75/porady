@@ -362,10 +362,10 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
             if len(query) < 2:
                 return
             c = self.conn.cursor()
-            c.execute("SELECT id, title, date, notes FROM meetings")
-            for meeting_id, title, meeting_date, notes in c.fetchall():
-                if query in " ".join((title or "", meeting_date or "", notes or "")).lower():
-                    add_result("Porada/zápis", meeting_id, title, meeting_date, notes or title)
+            c.execute("SELECT id, title, date FROM meetings")
+            for meeting_id, title, meeting_date in c.fetchall():
+                if query in " ".join((title or "", meeting_date or "")).lower():
+                    add_result("Porada", meeting_id, title, meeting_date, title)
             c.execute(
                 """SELECT meetings.id, meetings.title, meetings.date, agenda_points.title, agenda_items.description
                    FROM agenda_items JOIN agenda_points ON agenda_points.id=agenda_items.point_id

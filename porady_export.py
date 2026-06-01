@@ -13,7 +13,7 @@ class ExportMixin:
             return
 
         c = self.conn.cursor()
-        c.execute("SELECT title, date, notes FROM meetings WHERE id=?", (self.current_id,))
+        c.execute("SELECT title, date FROM meetings WHERE id=?", (self.current_id,))
         meeting = c.fetchone()
         if not meeting:
             messagebox.showwarning("Export", "Vybraná porada už neexistuje. Seznam bude obnoven.")
@@ -25,8 +25,8 @@ class ExportMixin:
 
         filepath = filedialog.asksaveasfilename(
             defaultextension=".html",
-            initialfile=f"Zapis_{meeting[1]}_{safe_title}.html",
-            filetypes=[("Tiskový HTML zápis", "*.html"), ("Textové soubory", "*.txt")],
+            initialfile=f"Prehled_porady_{meeting[1]}_{safe_title}.html",
+            filetypes=[("Tiskový HTML přehled", "*.html"), ("Textové soubory", "*.txt")],
         )
 
         if filepath:
@@ -34,13 +34,13 @@ class ExportMixin:
                 self.write_txt_export(filepath, meeting)
             else:
                 self.write_html_export(filepath, meeting)
-                if messagebox.askyesno("Export", "Zápis byl exportován. Chcete ho otevřít pro tisk?"):
+                if messagebox.askyesno("Export", "Přehled byl exportován. Chcete ho otevřít pro tisk?"):
                     try:
                         os.startfile(filepath)
                     except OSError:
                         messagebox.showwarning("Export", "Soubor se nepodařilo automaticky otevřít.")
 
-            messagebox.showinfo("Export", "Zápis z porady byl úspěšně exportován.")
+            messagebox.showinfo("Export", "Přehled porady byl úspěšně exportován.")
 
 
     def write_txt_export(self, filepath, meeting):
@@ -76,15 +76,10 @@ class ExportMixin:
             self.write_record_txt_section(file, "NAŘÍZENÍ", self.fetch_export_orders())
             self.write_record_txt_section(file, "POŽADAVKY", self.fetch_export_requirements())
 
-            file.write("\n\nZÁPIS:\n")
-            file.write("-" * 40 + "\n")
-            file.write(self.text_notes.get(1.0, tk.END).strip())
-
 
     def write_html_export(self, filepath, meeting):
         title = html.escape(meeting[0])
         date = html.escape(self.format_czech_date(meeting[1]))
-        notes = self.format_notes_for_html(self.text_notes.get(1.0, tk.END).strip())
         agenda_html = self.build_agenda_html()
         progress_html = self.build_progress_html()
         general_info_html = self.build_general_info_html()
@@ -95,7 +90,7 @@ class ExportMixin:
 <html lang="cs">
 <head>
   <meta charset="utf-8">
-  <title>Zápis z porady - {title}</title>
+  <title>Přehled porady - {title}</title>
   <style>
     :root {{
       --text: #17202a;
@@ -311,9 +306,6 @@ class ExportMixin:
     </section>
 
     <section>
-      <h2>Zápis z porady</h2>
-      <div class="notes">{notes}</div>
-    </section>
   </main>
 </body>
 </html>

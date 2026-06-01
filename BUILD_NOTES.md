@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.30`
-- Spec: `porady_4_30_aktivni_dashboard.spec`
-- EXE: `dist/porady_4_30_aktivni_dashboard.exe`
+- Verze: `4.31`
+- Spec: `porady_4_31_bez_zapisu.spec`
+- EXE: `dist/porady_4_31_bez_zapisu.exe`

@@ -149,9 +149,6 @@ class MeetingMixin:
 
 
     def clear_right_panel(self):
-        self.text_notes.config(state=tk.NORMAL)
-        self.text_notes.delete(1.0, tk.END)
-        self.text_notes.edit_modified(False)
         self.notes_dirty = False
         self.general_info_tree.delete(*self.general_info_tree.get_children())
         self.agenda_listbox.delete(0, tk.END)
@@ -169,7 +166,6 @@ class MeetingMixin:
         self.lbl_progress_summary.config(text="Bez bodů programu.")
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
-        self.btn_save.config(state=tk.DISABLED)
         self.btn_delete.config(state=tk.DISABLED)
         self.btn_edit_date.config(state=tk.DISABLED)
         self.btn_export.config(state=tk.DISABLED)
@@ -307,7 +303,7 @@ class MeetingMixin:
         c = self.conn.cursor()
 
         # Načtení základních dat porady
-        c.execute("SELECT title, date, notes FROM meetings WHERE id=?", (self.current_id,))
+        c.execute("SELECT title, date FROM meetings WHERE id=?", (self.current_id,))
         meeting = c.fetchone()
         if not meeting:
             messagebox.showwarning("Porada", "Vybraná porada už neexistuje. Seznam bude obnoven.")
@@ -323,11 +319,6 @@ class MeetingMixin:
         if hasattr(self, "btn_archive"):
             self.btn_archive.config(text="Vrátit z archivu" if archived_row and archived_row[0] == 1 else "Archiv")
 
-        self.text_notes.config(state=tk.NORMAL)
-        self.text_notes.delete(1.0, tk.END)
-        if meeting[2]:
-            self.text_notes.insert(tk.END, meeting[2])
-        self.text_notes.edit_modified(False)
         self.notes_dirty = False
 
         self.load_general_info_entries()
@@ -424,7 +415,6 @@ class MeetingMixin:
         self.refresh_dashboard_summary()
         self.ensure_active_agenda_point()
 
-        self.btn_save.config(state=tk.NORMAL)
         self.btn_delete.config(state=tk.NORMAL)
         self.btn_edit_date.config(state=tk.NORMAL)
         self.btn_export.config(state=tk.NORMAL)
@@ -445,6 +435,8 @@ class MeetingMixin:
 
 
     def on_notes_modified(self, event=None):
+        if self.text_notes is None:
+            return
         if not self.can_edit():
             self.text_notes.edit_modified(False)
             return
@@ -459,6 +451,9 @@ class MeetingMixin:
             return
 
         if self.current_id:
+            if self.text_notes is None:
+                self.notes_dirty = False
+                return
             notes = self.text_notes.get(1.0, tk.END).strip()
             c = self.conn.cursor()
             c.execute("UPDATE meetings SET notes=? WHERE id=?", (notes, self.current_id))

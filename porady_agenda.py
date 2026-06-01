@@ -399,11 +399,8 @@ class AgendaMixin:
             messagebox.showwarning("Upozornění", "Nejprve vyberte poradu ze seznamu.")
             return
 
-        if self.notes_dirty:
-            self.save_notes(show_message=False)
-
         c = self.conn.cursor()
-        c.execute("SELECT title, notes FROM meetings WHERE id=?", (self.current_id,))
+        c.execute("SELECT title FROM meetings WHERE id=?", (self.current_id,))
         meeting = c.fetchone()
         if not meeting:
             messagebox.showwarning("Kopírovat poradu", "Vybraná porada už neexistuje. Seznam bude obnoven.")
@@ -411,7 +408,7 @@ class AgendaMixin:
             self.clear_right_panel()
             self.load_meetings()
             return
-        old_title, old_notes = meeting
+        old_title = meeting[0]
 
         new_title = simpledialog.askstring(
             "Kopírovat poradu",
@@ -422,7 +419,7 @@ class AgendaMixin:
             date_str = datetime.now().strftime("%Y-%m-%d")
             c.execute(
                 "INSERT INTO meetings (title, date, notes, general_info) VALUES (?, ?, ?, ?)",
-                (new_title, date_str, old_notes or "", ""),
+                (new_title, date_str, "", ""),
             )
             new_meeting_id = c.lastrowid
 

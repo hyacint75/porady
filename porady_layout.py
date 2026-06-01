@@ -398,7 +398,7 @@ class LayoutMixin:
         self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_meeting"], padx=10, pady=14)
         self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_progress"], padx=10, pady=14)
         self.detail_tabs.add(self.general_info_tab, text="Všeobecné informace")
-        self.detail_tabs.add(self.meeting_tab, text="Zápis a body programu")
+        self.detail_tabs.add(self.meeting_tab, text="Body programu")
         self.detail_tabs.add(self.progress_tab, text="Přehled plnění")
 
         self.create_page_accent(self.general_info_tab, self.COLORS["page_info_accent"])
@@ -459,41 +459,7 @@ class LayoutMixin:
         )
         self.btn_invalidate_general_info.pack(side=tk.LEFT, padx=(10, 0))
 
-        self.create_page_accent(self.meeting_tab, self.COLORS["page_meeting_accent"])
-        self.create_section_header(self.meeting_tab, "Zápis z porady", self.COLORS["page_meeting_accent"])
-
-        self.notes_frame = tk.Frame(
-            self.meeting_tab,
-            bg=self.COLORS["panel_soft"],
-            highlightthickness=1,
-            highlightbackground=self.COLORS["border"],
-            highlightcolor=self.COLORS["primary"],
-        )
-        self.notes_frame.pack(fill=tk.X, pady=(6, 14))
-
-        self.text_notes = tk.Text(
-            self.notes_frame,
-            height=2,
-            font=(self.FONT, 11),
-            wrap=tk.WORD,
-            bg=self.COLORS["panel_soft"],
-            fg=self.COLORS["text"],
-            insertbackground=self.COLORS["text"],
-            relief=tk.FLAT,
-            borderwidth=0,
-            padx=12,
-            pady=10,
-            highlightthickness=0,
-        )
-        self.notes_scrollbar = ttk.Scrollbar(
-            self.notes_frame,
-            orient=tk.VERTICAL,
-            command=self.text_notes.yview,
-        )
-        self.text_notes.configure(yscrollcommand=self.notes_scrollbar.set)
-        self.text_notes.bind("<<Modified>>", self.on_notes_modified)
-        self.text_notes.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.notes_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text_notes = None
 
         self.create_page_accent(self.progress_tab, self.COLORS["page_progress_accent"])
         progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
@@ -722,14 +688,6 @@ class LayoutMixin:
         )
         self.btn_export.pack(side=tk.RIGHT, padx=(10, 0))
 
-        self.btn_save = self.create_button(
-            self.btn_frame,
-            text="Uložit zápis",
-            command=self.save_notes,
-            variant="primary",
-            state=tk.DISABLED,
-        )
-        self.btn_save.pack(side=tk.RIGHT)
         self.apply_permission_state()
 
 
@@ -789,7 +747,7 @@ class LayoutMixin:
 
 
     def apply_permission_state(self):
-        if not hasattr(self, "text_notes"):
+        if not hasattr(self, "agenda_listbox"):
             return
 
         edit_state = tk.NORMAL if self.can_edit() else tk.DISABLED
@@ -836,7 +794,6 @@ class LayoutMixin:
             "btn_edit_date",
             "btn_delete",
             "btn_delete_agenda",
-            "btn_save",
             "btn_archive",
             "btn_history",
             "btn_add_general_info",
@@ -857,5 +814,6 @@ class LayoutMixin:
             if widget:
                 widget.config(state=readonly_widget_state)
 
-        self.text_notes.config(state=edit_state)
+        if self.text_notes is not None:
+            self.text_notes.config(state=edit_state)
 
