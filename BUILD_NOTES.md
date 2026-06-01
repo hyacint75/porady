@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.33`
-- Spec: `porady_4_33_rozsireni_1_8.spec`
-- EXE: `dist/porady_4_33_rozsireni_1_8.exe`
+- Verze: `4.34`
+- Spec: `porady_4_34_rolovani_levych_tlacitek.spec`
+- EXE: `dist/porady_4_34_rolovani_levych_tlacitek.exe`

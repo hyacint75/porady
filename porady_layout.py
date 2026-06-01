@@ -178,8 +178,43 @@ class LayoutMixin:
         )
         self.lbl_meeting_count.pack(fill=tk.X, pady=(8, 0))
 
-        sidebar_actions = tk.Frame(self.left_frame, bg=self.COLORS["sidebar"], padx=16, pady=18)
-        sidebar_actions.pack(fill=tk.X)
+        actions_outer = tk.Frame(self.left_frame, bg=self.COLORS["sidebar"], padx=16, pady=(0, 18))
+        actions_outer.pack(fill=tk.X)
+
+        actions_canvas = tk.Canvas(
+            actions_outer,
+            height=320,
+            bg=self.COLORS["sidebar"],
+            highlightthickness=0,
+            bd=0,
+        )
+        actions_scrollbar = ttk.Scrollbar(actions_outer, orient=tk.VERTICAL, command=actions_canvas.yview)
+        actions_canvas.configure(yscrollcommand=actions_scrollbar.set)
+        actions_canvas.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        actions_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        sidebar_actions = tk.Frame(actions_canvas, bg=self.COLORS["sidebar"])
+        actions_window = actions_canvas.create_window((0, 0), window=sidebar_actions, anchor="nw")
+
+        def resize_actions(event):
+            actions_canvas.itemconfigure(actions_window, width=event.width)
+
+        def update_actions_scrollregion(event=None):
+            actions_canvas.configure(scrollregion=actions_canvas.bbox("all"))
+
+        def scroll_actions(event):
+            actions_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def bind_actions_scroll(event=None):
+            self.root.bind_all("<MouseWheel>", scroll_actions)
+
+        def unbind_actions_scroll(event=None):
+            self.root.unbind_all("<MouseWheel>")
+
+        actions_canvas.bind("<Configure>", resize_actions)
+        sidebar_actions.bind("<Configure>", update_actions_scrollregion)
+        actions_outer.bind("<Enter>", bind_actions_scroll)
+        actions_outer.bind("<Leave>", unbind_actions_scroll)
 
         self.btn_add_meeting = self.create_button(
             sidebar_actions,
