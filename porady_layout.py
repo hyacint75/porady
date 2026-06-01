@@ -480,17 +480,6 @@ class LayoutMixin:
         )
         self.lbl_progress_summary.pack(side=tk.RIGHT)
 
-        self.progress_canvas = tk.Canvas(
-            self.progress_tab,
-            height=118,
-            bg=self.COLORS["panel_soft"],
-            highlightthickness=1,
-            highlightbackground=self.COLORS["border"],
-            bd=0,
-        )
-        self.progress_canvas.pack(fill=tk.X, pady=(6, 16))
-        self.progress_canvas.bind("<Configure>", lambda event: self.draw_progress_overview())
-
         owner_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
         owner_progress_header.pack(fill=tk.X)
         tk.Label(
@@ -511,6 +500,27 @@ class LayoutMixin:
         )
         self.owner_progress_canvas.pack(fill=tk.X, pady=(6, 16))
         self.owner_progress_canvas.bind("<Configure>", lambda event: self.draw_owner_progress_overview())
+
+        point_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
+        point_progress_header.pack(fill=tk.X)
+        tk.Label(
+            point_progress_header,
+            text="Plnění podle bodů programu",
+            font=(self.FONT, 12, "bold"),
+            bg=self.COLORS["page_progress"],
+            fg=self.COLORS["page_progress_accent"],
+        ).pack(side=tk.LEFT)
+
+        self.progress_canvas = tk.Canvas(
+            self.progress_tab,
+            height=118,
+            bg=self.COLORS["panel_soft"],
+            highlightthickness=1,
+            highlightbackground=self.COLORS["border"],
+            bd=0,
+        )
+        self.progress_canvas.pack(fill=tk.X, pady=(6, 16))
+        self.progress_canvas.bind("<Configure>", lambda event: self.draw_progress_overview())
 
         agenda_header = tk.Frame(self.meeting_tab, bg=self.COLORS["page_meeting"])
         agenda_header.pack(fill=tk.X)

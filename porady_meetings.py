@@ -330,6 +330,14 @@ class MeetingMixin:
         self.progress_data = []
         self.owner_progress_data = []
         owner_progress = {}
+
+        def add_owner_progress(owner, is_resolved):
+            owner_key = (owner or "").strip() or "Bez odpovědnosti"
+            if owner_key not in owner_progress:
+                owner_progress[owner_key] = {"owner": owner_key, "done": 0, "total": 0}
+            owner_progress[owner_key]["total"] += 1
+            owner_progress[owner_key]["done"] += int(is_resolved == 1)
+
         c.execute("SELECT id, title FROM agenda_points WHERE meeting_id=? ORDER BY id", (self.current_id,))
         points = c.fetchall()
 
@@ -363,11 +371,7 @@ class MeetingMixin:
                 is_done = is_resolved == 1
                 resolved_count += int(is_done)
                 total += 1
-                owner_key = (owner or "").strip() or "Bez odpovědnosti"
-                if owner_key not in owner_progress:
-                    owner_progress[owner_key] = {"owner": owner_key, "done": 0, "total": 0}
-                owner_progress[owner_key]["total"] += 1
-                owner_progress[owner_key]["done"] += int(is_done)
+                add_owner_progress(owner, is_resolved)
                 status = "✓" if is_done else "○"
                 meta = self.format_item_meta(owner, due_date, due_date_reason)
                 item_row = {
@@ -389,6 +393,16 @@ class MeetingMixin:
                         color = self.COLORS["muted"] if is_done else self.COLORS["text"]
                         background = self.COLORS["panel_soft"]
                     self.add_agenda_display_row(item_row, f"    {status}  {description}{meta}", color, background)
+
+        for table_name in ("meeting_orders", "meeting_requirements"):
+            c.execute(
+                f"""SELECT owner, is_resolved
+                    FROM {table_name}
+                    WHERE meeting_id=?""",
+                (self.current_id,),
+            )
+            for owner, is_resolved in c.fetchall():
+                add_owner_progress(owner, is_resolved)
 
         open_count = total - resolved_count
         self.progress_total = {"done": resolved_count, "total": total}
