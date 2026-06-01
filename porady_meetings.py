@@ -143,6 +143,10 @@ class MeetingMixin:
         self.text_notes.delete(1.0, tk.END)
         self.text_notes.edit_modified(False)
         self.notes_dirty = False
+        self.text_general_info.config(state=tk.NORMAL)
+        self.text_general_info.delete(1.0, tk.END)
+        self.text_general_info.edit_modified(False)
+        self.general_info_dirty = False
         self.agenda_listbox.delete(0, tk.END)
         self.current_agenda_data = []
         self.all_agenda_data = []
@@ -157,6 +161,7 @@ class MeetingMixin:
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
         self.btn_save.config(state=tk.DISABLED)
+        self.btn_save_general_info.config(state=tk.DISABLED)
         self.btn_delete.config(state=tk.DISABLED)
         self.btn_edit_date.config(state=tk.DISABLED)
         self.btn_export.config(state=tk.DISABLED)
@@ -224,8 +229,8 @@ class MeetingMixin:
 
             c = self.conn.cursor()
             c.execute(
-                "INSERT INTO meetings (title, date, notes) VALUES (?, ?, ?)",
-                (title, parsed_date.strftime("%Y-%m-%d"), ""),
+                "INSERT INTO meetings (title, date, notes, general_info) VALUES (?, ?, ?, ?)",
+                (title, parsed_date.strftime("%Y-%m-%d"), "", ""),
             )
             self.current_id = c.lastrowid
             self.commit_database()
@@ -278,6 +283,8 @@ class MeetingMixin:
             index = selection[0]
             if self.current_id and self.notes_dirty:
                 self.save_notes(show_message=False)
+            if self.current_id and self.general_info_dirty:
+                self.save_general_info(show_message=False)
             self.current_id = self.meetings_data[index][0]
             self.active_point_id = None
             self.load_meeting_details()

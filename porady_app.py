@@ -25,7 +25,7 @@ from porady_schema import SchemaMixin
 
 
 class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.21"
+    APP_VERSION = "4.23"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"
@@ -98,6 +98,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMix
         self.editing_point_id = None
         self.editing_item_id = None
         self.notes_dirty = False
+        self.general_info_dirty = False
         self.meeting_search_var = tk.StringVar()
         self.logo_image = self.load_logo_image()
 
@@ -227,6 +228,8 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMix
     def set_admin_mode(self, enabled):
         if not enabled and self.can_edit() and getattr(self, "current_id", None) and getattr(self, "notes_dirty", False):
             self.save_notes(show_message=False)
+        if not enabled and self.can_edit() and getattr(self, "current_id", None) and getattr(self, "general_info_dirty", False):
+            self.save_general_info(show_message=False)
         self.is_admin = enabled
         if hasattr(self, "lbl_user_role"):
             self.lbl_user_role.config(text=self.get_role_text())

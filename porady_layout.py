@@ -27,6 +27,8 @@ class LayoutMixin:
     def on_close(self):
         if self.can_edit() and self.current_id and self.notes_dirty:
             self.save_notes(show_message=False)
+        if self.can_edit() and self.current_id and self.general_info_dirty:
+            self.save_general_info(show_message=False)
         self.conn.close()
         self.root.destroy()
 
@@ -275,10 +277,59 @@ class LayoutMixin:
         self.detail_tabs.pack(fill=tk.BOTH, expand=True)
         self.detail_tabs.bind("<<NotebookTabChanged>>", lambda event: self.draw_progress_overview())
 
+        self.general_info_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
         self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
         self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
+        self.detail_tabs.add(self.general_info_tab, text="Všeobecné informace")
         self.detail_tabs.add(self.meeting_tab, text="Zápis a body programu")
         self.detail_tabs.add(self.progress_tab, text="Přehled plnění")
+
+        self.create_section_header(self.general_info_tab, "Všeobecné informace")
+
+        self.general_info_frame = tk.Frame(
+            self.general_info_tab,
+            bg=self.COLORS["panel_soft"],
+            highlightthickness=1,
+            highlightbackground=self.COLORS["border"],
+            highlightcolor=self.COLORS["primary"],
+        )
+        self.general_info_frame.pack(fill=tk.BOTH, expand=True, pady=(6, 14))
+
+        self.text_general_info = tk.Text(
+            self.general_info_frame,
+            height=10,
+            font=(self.FONT, 11),
+            wrap=tk.WORD,
+            bg=self.COLORS["panel_soft"],
+            fg=self.COLORS["text"],
+            insertbackground=self.COLORS["text"],
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=12,
+            pady=10,
+            highlightthickness=0,
+        )
+        self.general_info_scrollbar = ttk.Scrollbar(
+            self.general_info_frame,
+            orient=tk.VERTICAL,
+            command=self.text_general_info.yview,
+        )
+        self.text_general_info.configure(yscrollcommand=self.general_info_scrollbar.set)
+        self.text_general_info.bind("<<Modified>>", self.on_general_info_modified)
+        self.text_general_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.general_info_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.general_info_actions = tk.Frame(self.general_info_tab, bg=self.COLORS["panel"])
+        self.general_info_actions.pack(fill=tk.X)
+
+        self.btn_save_general_info = self.create_button(
+            self.general_info_actions,
+            text="Uložit informace",
+            command=self.save_general_info,
+            variant="primary",
+            state=tk.DISABLED,
+        )
+        self.btn_save_general_info.pack(side=tk.RIGHT)
 
         self.create_section_header(self.meeting_tab, "Zápis z porady")
 
@@ -573,6 +624,7 @@ class LayoutMixin:
             "btn_delete",
             "btn_delete_agenda",
             "btn_save",
+            "btn_save_general_info",
         ):
             button = getattr(self, button_name, None)
             if button:
@@ -589,4 +641,5 @@ class LayoutMixin:
                 widget.config(state=readonly_widget_state)
 
         self.text_notes.config(state=edit_state)
+        self.text_general_info.config(state=edit_state)
 

@@ -46,6 +46,7 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_owner ON meeting_requirements(owner)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_due_date ON meeting_requirements(due_date)")
         self.commit_database()
+        self.ensure_meeting_columns()
         self.ensure_agenda_item_columns()
         self.ensure_meeting_order_columns()
         self.ensure_meeting_requirement_columns()
@@ -84,6 +85,15 @@ class SchemaMixin:
             c.execute("ALTER TABLE meeting_requirements ADD COLUMN created_at TEXT")
         if "completed_at" not in columns:
             c.execute("ALTER TABLE meeting_requirements ADD COLUMN completed_at TEXT")
+        self.commit_database()
+
+
+    def ensure_meeting_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(meetings)")
+        columns = {row[1] for row in c.fetchall()}
+        if "general_info" not in columns:
+            c.execute("ALTER TABLE meetings ADD COLUMN general_info TEXT")
         self.commit_database()
 
 

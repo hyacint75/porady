@@ -151,6 +151,14 @@ class RequirementMixin:
 
         self.create_button(
             actions,
+            text="Vytvořit úkol",
+            command=lambda: self.create_task_from_selected_requirement(tree, refresh),
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
             text="Otevřít poradu",
             command=lambda: self.open_selected_requirement_meeting(tree),
             variant="secondary",
@@ -513,6 +521,91 @@ class RequirementMixin:
         self.commit_database()
         if refresh_callback:
             refresh_callback()
+
+
+    def ensure_requirement_task_point(self, meeting_id):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT id FROM agenda_points
+               WHERE meeting_id=? AND title=?
+               ORDER BY id LIMIT 1""",
+            (meeting_id, "Požadavky"),
+        )
+        row = c.fetchone()
+        if row:
+            return row[0]
+
+        c.execute("INSERT INTO agenda_points (meeting_id, title) VALUES (?, ?)", (meeting_id, "Požadavky"))
+        return c.lastrowid
+
+
+    def create_task_from_requirement(self, requirement_id, refresh_callback=None):
+        if not self.require_admin():
+            return
+
+        row = self.fetch_requirement_detail(requirement_id)
+        if not row:
+            messagebox.showwarning("Požadavky", "Vybraný požadavek už neexistuje.")
+            if refresh_callback:
+                refresh_callback()
+            return
+
+        _, meeting_id, description, owner, due_date, _ = row
+        if not meeting_id:
+            messagebox.showwarning("Požadavky", "Požadavek není přiřazený k existující poradě.")
+            return
+
+        c = self.conn.cursor()
+        c.execute("SELECT title FROM meetings WHERE id=?", (meeting_id,))
+        meeting = c.fetchone()
+        if not meeting:
+            messagebox.showwarning("Požadavky", "Porada pro vybraný požadavek už neexistuje.")
+            return
+
+        c.execute(
+            """SELECT agenda_items.id
+               FROM agenda_items
+               JOIN agenda_points ON agenda_points.id = agenda_items.point_id
+               WHERE agenda_points.meeting_id=?
+                 AND agenda_items.description=?
+                 AND COALESCE(agenda_items.owner, '')=?
+                 AND COALESCE(agenda_items.due_date, '')=?
+               LIMIT 1""",
+            (meeting_id, description or "", owner or "", due_date or ""),
+        )
+        if c.fetchone() and not messagebox.askyesno(
+            "Vytvořit úkol",
+            "Stejný úkol už u této porady existuje. Chcete ho vytvořit znovu?",
+        ):
+            return
+
+        point_id = self.ensure_requirement_task_point(meeting_id)
+        c.execute(
+            """INSERT INTO agenda_items
+               (point_id, description, is_resolved, owner, due_date)
+               VALUES (?, ?, 0, ?, ?)""",
+            (point_id, description or "", owner or "", due_date or ""),
+        )
+        new_item_id = c.lastrowid
+        self.commit_database()
+        self.refresh_item_description_choices()
+        self.refresh_owner_choices()
+
+        if self.current_id == meeting_id:
+            self.load_meeting_details()
+            self.select_agenda_item(new_item_id)
+
+        if refresh_callback:
+            refresh_callback()
+        messagebox.showinfo("Vytvořit úkol", "Z požadavku byl vytvořen úkol v bodu programu Požadavky.")
+
+
+    def create_task_from_selected_requirement(self, tree, refresh_callback=None):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Přehled požadavků", "Nejprve vyberte požadavek.")
+            return
+        self.create_task_from_requirement(int(selection[0]), refresh_callback=refresh_callback)
 
 
     def open_selected_requirement_meeting(self, tree):
