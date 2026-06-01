@@ -48,7 +48,7 @@ class RequirementMixin:
             state="readonly",
             width=20,
             font=(self.FONT, 10),
-            values=["Všichni"] + self.get_requirement_owner_filter_values(),
+            values=["Všichni"] + self.get_people_values(),
         )
         owner_filter.pack(side=tk.LEFT, padx=(0, 16), ipady=3)
 
@@ -387,7 +387,7 @@ class RequirementMixin:
         field_row.columnconfigure(0, weight=1)
         field_row.columnconfigure(1, weight=1)
 
-        owner_entry = ttk.Combobox(field_row, textvariable=owner_var, values=self.get_requirement_owner_filter_values(), font=(self.FONT, 10))
+        owner_entry = ttk.Combobox(field_row, textvariable=owner_var, values=self.get_people_values(), font=(self.FONT, 10))
         owner_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8), ipady=3)
 
         due_entry = ttk.Combobox(
@@ -443,6 +443,13 @@ class RequirementMixin:
             completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_resolved else ""
             c = self.conn.cursor()
             if existing:
+                previous = {
+                    "porada": existing[1],
+                    "text": existing[2],
+                    "odpovědnost": existing[3],
+                    "termín": existing[4],
+                    "stav": "splněno" if existing[5] == 1 else "otevřeno",
+                }
                 c.execute(
                     """UPDATE meeting_requirements
                        SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?
@@ -456,6 +463,19 @@ class RequirementMixin:
                         completed_at,
                         requirement_id,
                     ),
+                )
+                self.log_field_changes(
+                    "požadavek",
+                    requirement_id,
+                    meeting_id,
+                    previous,
+                    {
+                        "porada": meeting_id,
+                        "text": description_value,
+                        "odpovědnost": owner_value,
+                        "termín": due_date_value,
+                        "stav": "splněno" if is_resolved else "otevřeno",
+                    },
                 )
             else:
                 c.execute(
@@ -472,6 +492,7 @@ class RequirementMixin:
                         completed_at,
                     ),
                 )
+                self.log_change("požadavek", c.lastrowid, meeting_id, "vytvořeno", "", description_value)
             self.commit_database()
             self.refresh_dashboard_summary()
             if refresh_callback:
@@ -479,6 +500,13 @@ class RequirementMixin:
             dialog.destroy()
 
         self.create_button(actions, text="Uložit", command=save_requirement, variant="primary").pack(side=tk.LEFT)
+        if existing:
+            self.create_button(
+                actions,
+                text="Historie",
+                command=lambda: self.show_history_dialog("požadavek", requirement_id, existing[1]),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
         description_text.focus_set()
 
@@ -574,6 +602,7 @@ class RequirementMixin:
             (point_id, description or "", owner or "", due_date or ""),
         )
         new_item_id = c.lastrowid
+        self.log_change("úkol", new_item_id, meeting_id, "vytvořeno z požadavku", "", description or "")
         self.commit_database()
         self.refresh_dashboard_summary()
         self.refresh_item_description_choices()

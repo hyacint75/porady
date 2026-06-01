@@ -48,7 +48,7 @@ class OrderMixin:
             state="readonly",
             width=20,
             font=(self.FONT, 10),
-            values=["Všichni"] + self.get_order_owner_filter_values(),
+            values=["Všichni"] + self.get_people_values(),
         )
         owner_filter.pack(side=tk.LEFT, padx=(0, 16), ipady=3)
 
@@ -415,7 +415,7 @@ class OrderMixin:
         owner_entry = ttk.Combobox(
             field_row,
             textvariable=owner_var,
-            values=self.get_order_owner_filter_values(),
+            values=self.get_people_values(),
             font=(self.FONT, 10),
         )
         owner_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8), ipady=3)
@@ -473,6 +473,13 @@ class OrderMixin:
             completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_resolved else ""
             c = self.conn.cursor()
             if existing:
+                previous = {
+                    "porada": existing[1],
+                    "text": existing[2],
+                    "odpovědnost": existing[3],
+                    "termín": existing[4],
+                    "stav": "splněno" if existing[5] == 1 else "otevřeno",
+                }
                 c.execute(
                     """UPDATE meeting_orders
                        SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?
@@ -486,6 +493,19 @@ class OrderMixin:
                         completed_at,
                         order_id,
                     ),
+                )
+                self.log_field_changes(
+                    "nařízení",
+                    order_id,
+                    meeting_id,
+                    previous,
+                    {
+                        "porada": meeting_id,
+                        "text": description_value,
+                        "odpovědnost": owner_value,
+                        "termín": due_date_value,
+                        "stav": "splněno" if is_resolved else "otevřeno",
+                    },
                 )
             else:
                 c.execute(
@@ -502,6 +522,7 @@ class OrderMixin:
                         completed_at,
                     ),
                 )
+                self.log_change("nařízení", c.lastrowid, meeting_id, "vytvořeno", "", description_value)
             self.commit_database()
             self.refresh_dashboard_summary()
             if refresh_callback:
@@ -509,6 +530,13 @@ class OrderMixin:
             dialog.destroy()
 
         self.create_button(actions, text="Uložit", command=save_order, variant="primary").pack(side=tk.LEFT)
+        if existing:
+            self.create_button(
+                actions,
+                text="Historie",
+                command=lambda: self.show_history_dialog("nařízení", order_id, existing[1]),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
         description_text.focus_set()
 

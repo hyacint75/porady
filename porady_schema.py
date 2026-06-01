@@ -38,6 +38,15 @@ class SchemaMixin:
                      (id INTEGER PRIMARY KEY, meeting_id INTEGER, info_text TEXT, created_at TEXT,
                       is_invalid INTEGER, invalidated_at TEXT)"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS change_history
+                     (id INTEGER PRIMARY KEY, record_type TEXT, record_id INTEGER, meeting_id INTEGER,
+                      field_name TEXT, old_value TEXT, new_value TEXT, changed_at TEXT, changed_by TEXT)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS people
+                     (id INTEGER PRIMARY KEY, name TEXT UNIQUE, normalized_name TEXT, is_active INTEGER DEFAULT 1)"""
+        )
         c.execute("CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_meeting_id ON agenda(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_points_meeting_id ON agenda_points(meeting_id)")
@@ -52,6 +61,9 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_due_date ON meeting_requirements(due_date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_general_info_meeting_id ON meeting_general_info(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_general_info_created_at ON meeting_general_info(created_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_record ON change_history(record_type, record_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_meeting_id ON change_history(meeting_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_people_name ON people(name)")
         self.commit_database()
         self.ensure_meeting_columns()
         self.ensure_general_info_columns()
@@ -103,6 +115,8 @@ class SchemaMixin:
         columns = {row[1] for row in c.fetchall()}
         if "general_info" not in columns:
             c.execute("ALTER TABLE meetings ADD COLUMN general_info TEXT")
+        if "archived" not in columns:
+            c.execute("ALTER TABLE meetings ADD COLUMN archived INTEGER DEFAULT 0")
         self.commit_database()
 
 

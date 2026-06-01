@@ -133,6 +133,22 @@ class LayoutMixin:
         self.entry_meeting_search.pack(fill=tk.X, ipady=7)
         self.entry_meeting_search.bind("<KeyRelease>", lambda event: self.load_meetings())
 
+        self.archive_check = tk.Checkbutton(
+            search_frame,
+            text="Zobrazit archiv",
+            variable=self.show_archived_meetings,
+            command=self.load_meetings,
+            bg=self.COLORS["sidebar"],
+            fg=self.COLORS["sidebar_muted"],
+            activebackground=self.COLORS["sidebar"],
+            activeforeground="white",
+            selectcolor=self.COLORS["sidebar"],
+            font=(self.FONT, 9),
+            relief=tk.FLAT,
+            borderwidth=0,
+        )
+        self.archive_check.pack(anchor="w", pady=(8, 0))
+
         list_frame = tk.Frame(self.left_frame, bg=self.COLORS["sidebar"], padx=16)
         list_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -183,6 +199,13 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
+            text="Globální hledání",
+            command=self.show_global_search,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        self.create_button(
+            sidebar_actions,
             text="Přehled úkolů",
             command=self.show_task_overview,
             variant="secondary",
@@ -194,6 +217,22 @@ class LayoutMixin:
             command=self.show_order_overview,
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
+
+        self.create_button(
+            sidebar_actions,
+            text="Tisk otevřených položek",
+            command=self.export_open_items_overview,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        self.btn_people_manager = self.create_button(
+            sidebar_actions,
+            text="Odpovědnosti",
+            command=self.show_people_manager,
+            variant="secondary",
+        )
+        if self.can_edit():
+            self.btn_people_manager.pack(fill=tk.X, pady=(0, 8))
 
         self.create_button(
             sidebar_actions,
@@ -325,6 +364,21 @@ class LayoutMixin:
                 anchor="w",
             ).pack(fill=tk.X)
             self.dashboard_labels[key] = value_label
+
+        quick_filters = tk.Frame(self.content, bg=self.COLORS["panel"])
+        quick_filters.pack(fill=tk.X, pady=(0, 14))
+        for label, filter_type in (
+            ("Dnes", "today"),
+            ("Tento týden", "week"),
+            ("Po termínu", "overdue"),
+            ("Bez odpovědnosti", "no_owner"),
+        ):
+            self.create_button(
+                quick_filters,
+                text=label,
+                command=lambda selected_filter=filter_type: self.show_open_items_overview(selected_filter),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(0, 8))
 
         self.detail_tabs = ttk.Notebook(self.content)
         self.detail_tabs.pack(fill=tk.BOTH, expand=True)
@@ -622,6 +676,24 @@ class LayoutMixin:
         )
         self.btn_delete.pack(side=tk.LEFT)
 
+        self.btn_archive = self.create_button(
+            self.btn_frame,
+            text="Archiv",
+            command=self.archive_current_meeting,
+            variant="secondary",
+            state=tk.DISABLED,
+        )
+        self.btn_archive.pack(side=tk.LEFT, padx=(10, 0))
+
+        self.btn_history = self.create_button(
+            self.btn_frame,
+            text="Historie",
+            command=lambda: self.show_history_dialog(meeting_id=self.current_id),
+            variant="secondary",
+            state=tk.DISABLED,
+        )
+        self.btn_history.pack(side=tk.LEFT, padx=(10, 0))
+
         self.btn_delete_agenda = self.create_button(
             self.btn_frame,
             text="Smazat vybrané",
@@ -730,6 +802,16 @@ class LayoutMixin:
             else:
                 self.btn_data_settings.pack_forget()
 
+        if hasattr(self, "btn_people_manager"):
+            if self.can_edit():
+                if not self.btn_people_manager.winfo_ismapped():
+                    pack_options = {"fill": tk.X, "pady": (0, 8)}
+                    if hasattr(self, "btn_data_settings"):
+                        pack_options["before"] = self.btn_data_settings
+                    self.btn_people_manager.pack(**pack_options)
+            else:
+                self.btn_people_manager.pack_forget()
+
         for button_name in (
             "btn_add_meeting",
             "btn_copy",
@@ -745,6 +827,8 @@ class LayoutMixin:
             "btn_delete",
             "btn_delete_agenda",
             "btn_save",
+            "btn_archive",
+            "btn_history",
             "btn_add_general_info",
             "btn_edit_general_info",
             "btn_invalidate_general_info",

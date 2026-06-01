@@ -189,7 +189,7 @@ class TaskOverviewMixin:
             state="readonly",
             width=22,
             font=(self.FONT, 10),
-            values=["Všichni"] + self.get_owner_filter_values(),
+            values=["Všichni"] + self.get_people_values(),
         )
         owner_filter.pack(side=tk.LEFT, padx=(0, 18), ipady=3)
 
@@ -654,7 +654,7 @@ class TaskOverviewMixin:
         fields.columnconfigure(0, weight=1)
         fields.columnconfigure(1, weight=1)
 
-        owner_entry = ttk.Combobox(fields, textvariable=owner_var, values=self.get_owner_filter_values(), font=(self.FONT, 10))
+        owner_entry = ttk.Combobox(fields, textvariable=owner_var, values=self.get_people_values(), font=(self.FONT, 10))
         owner_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8), ipady=3)
 
         today = datetime.now().date()
@@ -731,6 +731,13 @@ class TaskOverviewMixin:
                 return
 
             c = self.conn.cursor()
+            previous = {
+                "text": description,
+                "odpovědnost": owner,
+                "termín": due_date,
+                "důvod prodloužení": due_date_reason,
+                "stav": "splněno" if is_resolved else "otevřeno",
+            }
             c.execute(
                 """UPDATE agenda_items
                    SET description=?, owner=?, due_date=?, due_date_reason=?, is_resolved=?
@@ -743,6 +750,19 @@ class TaskOverviewMixin:
                     1 if resolved_var.get() else 0,
                     task_id,
                 ),
+            )
+            self.log_field_changes(
+                "úkol",
+                task_id,
+                meeting_id,
+                previous,
+                {
+                    "text": new_description,
+                    "odpovědnost": owner_var.get().strip(),
+                    "termín": new_due_date,
+                    "důvod prodloužení": new_reason,
+                    "stav": "splněno" if resolved_var.get() else "otevřeno",
+                },
             )
             self.commit_database()
             self.refresh_dashboard_summary()
@@ -774,6 +794,12 @@ class TaskOverviewMixin:
             variant="primary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         ).pack(side=tk.LEFT)
+        self.create_button(
+            actions,
+            text="Historie",
+            command=lambda: self.show_history_dialog("úkol", task_id, meeting_id),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Otevřít poradu", command=open_meeting_from_popup, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=popup.destroy, variant="secondary").pack(side=tk.RIGHT)
 

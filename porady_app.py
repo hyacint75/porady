@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from porady_data import DataMixin
 from porady_dialogs import DialogMixin
+from porady_enhancements import EnhancementMixin
 from porady_export import ExportMixin
 from porady_orders import OrderMixin
 from porady_progress import ProgressMixin
@@ -24,8 +25,8 @@ from porady_meetings import MeetingMixin
 from porady_schema import SchemaMixin
 
 
-class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.28"
+class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
+    APP_VERSION = "4.29"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"
@@ -108,6 +109,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMix
         self.editing_item_id = None
         self.notes_dirty = False
         self.meeting_search_var = tk.StringVar()
+        self.show_archived_meetings = tk.BooleanVar(value=False)
         self.logo_image = self.load_logo_image()
 
         self.create_layout()
@@ -115,6 +117,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMix
         self.refresh_owner_choices()
         self.refresh_due_date_choices()
         self.load_meetings()
+        self.root.after(700, self.show_startup_reminders)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
 

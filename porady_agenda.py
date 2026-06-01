@@ -186,6 +186,8 @@ class AgendaMixin:
                 "INSERT INTO agenda_items (point_id, description, is_resolved, owner, due_date) VALUES (?, ?, 0, ?, ?)",
                 (point_id, new_desc, owner, due_date),
             )
+            new_item_id = c.lastrowid
+            self.log_change("úkol", new_item_id, self.current_id, "vytvořeno", "", new_desc)
             self.commit_database()
             self.reset_item_form()
             self.refresh_item_description_choices()
@@ -209,10 +211,10 @@ class AgendaMixin:
 
         item_id = self.editing_item_id
         c = self.conn.cursor()
-        c.execute("SELECT due_date, due_date_reason FROM agenda_items WHERE id=?", (item_id,))
+        c.execute("SELECT description, owner, due_date, due_date_reason, is_resolved FROM agenda_items WHERE id=?", (item_id,))
         previous_row = c.fetchone()
-        due_date_reason = previous_row[1] if previous_row else ""
-        old_due = self.parse_due_date(previous_row[0]) if previous_row else None
+        due_date_reason = previous_row[3] if previous_row else ""
+        old_due = self.parse_due_date(previous_row[2]) if previous_row else None
         new_due = self.parse_due_date(due_date)
         if old_due and new_due and new_due > old_due and not due_date_reason:
             due_date_reason = simpledialog.askstring(
@@ -226,6 +228,24 @@ class AgendaMixin:
             "UPDATE agenda_items SET description=?, owner=?, due_date=?, due_date_reason=? WHERE id=?",
             (description, owner, due_date, due_date_reason, item_id),
         )
+        if previous_row:
+            self.log_field_changes(
+                "úkol",
+                item_id,
+                self.current_id,
+                {
+                    "text": previous_row[0],
+                    "odpovědnost": previous_row[1],
+                    "termín": previous_row[2],
+                    "důvod prodloužení": previous_row[3],
+                },
+                {
+                    "text": description,
+                    "odpovědnost": owner,
+                    "termín": due_date,
+                    "důvod prodloužení": due_date_reason,
+                },
+            )
         self.commit_database()
         self.reset_item_form()
         self.refresh_item_description_choices()
@@ -340,6 +360,7 @@ class AgendaMixin:
 
             c = self.conn.cursor()
             c.execute("UPDATE agenda_items SET is_resolved=? WHERE id=?", (new_status, row["id"]))
+            self.log_change("úkol", row["id"], self.current_id, "stav", "splněno" if current_status == 1 else "otevřeno", "splněno" if new_status == 1 else "otevřeno")
             self.commit_database()
             self.load_meeting_details()
 

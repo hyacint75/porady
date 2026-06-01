@@ -40,6 +40,11 @@ class MeetingMixin:
         if not hasattr(self, "entry_new_owner"):
             return
 
+        people = self.get_people_values()
+        if people:
+            self.entry_new_owner.configure(values=people)
+            return
+
         c = self.conn.cursor()
         c.execute(
             """SELECT DISTINCT owner FROM agenda_items
@@ -92,7 +97,10 @@ class MeetingMixin:
     def load_meetings(self):
         self.meeting_listbox.delete(0, tk.END)
         c = self.conn.cursor()
-        c.execute("SELECT id, title, date FROM meetings ORDER BY date DESC")
+        if self.show_archived_meetings.get():
+            c.execute("SELECT id, title, date, COALESCE(archived, 0) FROM meetings ORDER BY date DESC")
+        else:
+            c.execute("SELECT id, title, date, COALESCE(archived, 0) FROM meetings WHERE COALESCE(archived, 0)=0 ORDER BY date DESC")
         all_meetings = c.fetchall()
         search_text = self.meeting_search_var.get().strip().lower()
         if search_text:
@@ -108,8 +116,10 @@ class MeetingMixin:
         else:
             self.meetings_data = all_meetings
 
-        for meeting_id, title, date in self.meetings_data:
-            prefix = "  PLÁN  " if self.is_planned_meeting(date) else "        "
+        for meeting in self.meetings_data:
+            meeting_id, title, date = meeting[:3]
+            archived = meeting[3] == 1 if len(meeting) > 3 else False
+            prefix = " ARCHIV " if archived else ("  PLÁN  " if self.is_planned_meeting(date) else "        ")
             self.meeting_listbox.insert(tk.END, f"{prefix}{self.format_czech_date(date)}  |  {title}")
 
         if hasattr(self, "lbl_meeting_count"):
@@ -164,6 +174,10 @@ class MeetingMixin:
         self.btn_edit_date.config(state=tk.DISABLED)
         self.btn_export.config(state=tk.DISABLED)
         self.btn_delete_agenda.config(state=tk.DISABLED)
+        if hasattr(self, "btn_archive"):
+            self.btn_archive.config(state=tk.DISABLED)
+        if hasattr(self, "btn_history"):
+            self.btn_history.config(state=tk.DISABLED)
         self.apply_permission_state()
 
 
@@ -304,6 +318,10 @@ class MeetingMixin:
         czech_date = self.format_czech_date(meeting[1])
         self.lbl_title.config(text=f"{meeting[0]} - {czech_date}")
         self.lbl_subtitle.config(text="Datum je součástí názvu porady.")
+        c.execute("SELECT COALESCE(archived, 0) FROM meetings WHERE id=?", (self.current_id,))
+        archived_row = c.fetchone()
+        if hasattr(self, "btn_archive"):
+            self.btn_archive.config(text="Vrátit z archivu" if archived_row and archived_row[0] == 1 else "Archiv")
 
         self.text_notes.config(state=tk.NORMAL)
         self.text_notes.delete(1.0, tk.END)
@@ -411,6 +429,10 @@ class MeetingMixin:
         self.btn_edit_date.config(state=tk.NORMAL)
         self.btn_export.config(state=tk.NORMAL)
         self.btn_delete_agenda.config(state=tk.NORMAL)
+        if hasattr(self, "btn_archive"):
+            self.btn_archive.config(state=tk.NORMAL)
+        if hasattr(self, "btn_history"):
+            self.btn_history.config(state=tk.NORMAL)
         self.apply_permission_state()
 
 
