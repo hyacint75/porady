@@ -98,7 +98,7 @@ class DialogMixin:
         dialog.geometry(f"{width}x{height}+{x}+{y}")
 
 
-    def create_dialog_header(self, parent, title, subtitle=None, right_widget=None):
+    def create_dialog_header(self, parent, title, subtitle=None, right_widget=None, accent=None):
         header = tk.Frame(parent, bg=self.COLORS["panel"])
         header.pack(fill=tk.X, pady=(0, 18))
 
@@ -128,6 +128,9 @@ class DialogMixin:
 
         if right_widget:
             right_widget(header)
+
+        if accent:
+            tk.Frame(parent, height=4, bg=accent).pack(fill=tk.X, pady=(0, 12))
 
         separator = tk.Frame(parent, height=1, bg=self.COLORS["border"])
         separator.pack(fill=tk.X, pady=(0, 18))

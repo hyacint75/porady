@@ -25,7 +25,7 @@ from porady_schema import SchemaMixin
 
 
 class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.25"
+    APP_VERSION = "4.26"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"
@@ -48,6 +48,15 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMix
         "success": "#15803d",
         "warning": "#f59e0b",
         "selection": "#dbeafe",
+        "page_info": "#f0f9ff",
+        "page_info_accent": "#0284c7",
+        "page_meeting": "#f8fafc",
+        "page_meeting_accent": "#2563eb",
+        "page_progress": "#f0fdf4",
+        "page_progress_accent": "#15803d",
+        "page_tasks_accent": "#7c3aed",
+        "page_orders_accent": "#dc2626",
+        "page_requirements_accent": "#d97706",
     }
 
     FONT = "Segoe UI"

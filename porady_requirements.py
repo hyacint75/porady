@@ -26,6 +26,7 @@ class RequirementMixin:
             "Přehled požadavků z porad",
             "Požadavky jsou vedeny samostatně mimo úkoly, body programu a nařízení.",
             right_widget=add_count_label,
+            accent=self.COLORS["page_requirements_accent"],
         )
         count_label = count_label_holder["label"]
 
@@ -342,6 +343,7 @@ class RequirementMixin:
             content,
             title,
             "Požadavek se ukládá samostatně a není svázaný s úkoly, body programu ani nařízeními.",
+            accent=self.COLORS["page_requirements_accent"],
         )
         form = tk.Frame(content, bg=self.COLORS["panel"])
         form.pack(fill=tk.BOTH, expand=True)

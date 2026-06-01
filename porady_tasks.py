@@ -170,6 +170,7 @@ class TaskOverviewMixin:
             "Přehled otevřených úkolů",
             "Dvojklikem otevřete detail úkolu v samostatném okně.",
             right_widget=add_count_label,
+            accent=self.COLORS["page_tasks_accent"],
         )
         count_label = count_label_holder["label"]
 

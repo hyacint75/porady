@@ -23,6 +23,13 @@ class LayoutMixin:
             darkcolor=self.COLORS["border"],
             padding=8,
         )
+        self.style.configure("TNotebook", background=self.COLORS["panel"], borderwidth=0)
+        self.style.configure("TNotebook.Tab", padding=(14, 8), font=(self.FONT, 10))
+        self.style.map(
+            "TNotebook.Tab",
+            background=[("selected", self.COLORS["selection"])],
+            foreground=[("selected", self.COLORS["primary"])],
+        )
         self.general_info_font = tkfont.Font(family=self.FONT, size=10)
         self.general_info_invalid_font = tkfont.Font(family=self.FONT, size=10, overstrike=1)
 
@@ -280,16 +287,17 @@ class LayoutMixin:
         self.detail_tabs.pack(fill=tk.BOTH, expand=True)
         self.detail_tabs.bind("<<NotebookTabChanged>>", lambda event: self.draw_progress_overview())
 
-        self.general_info_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
-        self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
-        self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=2, pady=14)
+        self.general_info_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_info"], padx=10, pady=14)
+        self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_meeting"], padx=10, pady=14)
+        self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_progress"], padx=10, pady=14)
         self.detail_tabs.add(self.general_info_tab, text="Všeobecné informace")
         self.detail_tabs.add(self.meeting_tab, text="Zápis a body programu")
         self.detail_tabs.add(self.progress_tab, text="Přehled plnění")
 
-        self.create_section_header(self.general_info_tab, "Všeobecné informace")
+        self.create_page_accent(self.general_info_tab, self.COLORS["page_info_accent"])
+        self.create_section_header(self.general_info_tab, "Všeobecné informace", self.COLORS["page_info_accent"])
 
-        self.general_info_frame = tk.Frame(self.general_info_tab, bg=self.COLORS["panel"])
+        self.general_info_frame = tk.Frame(self.general_info_tab, bg=self.COLORS["page_info"])
         self.general_info_frame.pack(fill=tk.BOTH, expand=True, pady=(6, 14))
 
         self.general_info_tree = ttk.Treeview(
@@ -314,7 +322,7 @@ class LayoutMixin:
         self.general_info_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.general_info_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.general_info_actions = tk.Frame(self.general_info_tab, bg=self.COLORS["panel"])
+        self.general_info_actions = tk.Frame(self.general_info_tab, bg=self.COLORS["page_info"])
         self.general_info_actions.pack(fill=tk.X)
 
         self.btn_add_general_info = self.create_button(
@@ -344,7 +352,8 @@ class LayoutMixin:
         )
         self.btn_invalidate_general_info.pack(side=tk.LEFT, padx=(10, 0))
 
-        self.create_section_header(self.meeting_tab, "Zápis z porady")
+        self.create_page_accent(self.meeting_tab, self.COLORS["page_meeting_accent"])
+        self.create_section_header(self.meeting_tab, "Zápis z porady", self.COLORS["page_meeting_accent"])
 
         self.notes_frame = tk.Frame(
             self.meeting_tab,
@@ -379,20 +388,21 @@ class LayoutMixin:
         self.text_notes.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.notes_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["panel"])
+        self.create_page_accent(self.progress_tab, self.COLORS["page_progress_accent"])
+        progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
         progress_header.pack(fill=tk.X)
         tk.Label(
             progress_header,
             text="Přehled plnění",
             font=(self.FONT, 12, "bold"),
-            bg=self.COLORS["panel"],
-            fg=self.COLORS["text"],
+            bg=self.COLORS["page_progress"],
+            fg=self.COLORS["page_progress_accent"],
         ).pack(side=tk.LEFT)
         self.lbl_progress_summary = tk.Label(
             progress_header,
             text="Bez bodů programu.",
             font=(self.FONT, 10),
-            bg=self.COLORS["panel"],
+            bg=self.COLORS["page_progress"],
             fg=self.COLORS["muted"],
         )
         self.lbl_progress_summary.pack(side=tk.RIGHT)
@@ -408,14 +418,14 @@ class LayoutMixin:
         self.progress_canvas.pack(fill=tk.X, pady=(6, 16))
         self.progress_canvas.bind("<Configure>", lambda event: self.draw_progress_overview())
 
-        owner_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["panel"])
+        owner_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
         owner_progress_header.pack(fill=tk.X)
         tk.Label(
             owner_progress_header,
             text="Plnění podle odpovědnosti",
             font=(self.FONT, 12, "bold"),
-            bg=self.COLORS["panel"],
-            fg=self.COLORS["text"],
+            bg=self.COLORS["page_progress"],
+            fg=self.COLORS["page_progress_accent"],
         ).pack(side=tk.LEFT)
 
         self.owner_progress_canvas = tk.Canvas(
@@ -429,14 +439,14 @@ class LayoutMixin:
         self.owner_progress_canvas.pack(fill=tk.X, pady=(6, 16))
         self.owner_progress_canvas.bind("<Configure>", lambda event: self.draw_owner_progress_overview())
 
-        agenda_header = tk.Frame(self.meeting_tab, bg=self.COLORS["panel"])
+        agenda_header = tk.Frame(self.meeting_tab, bg=self.COLORS["page_meeting"])
         agenda_header.pack(fill=tk.X)
         tk.Label(
             agenda_header,
             text="Body programu",
             font=(self.FONT, 12, "bold"),
-            bg=self.COLORS["panel"],
-            fg=self.COLORS["text"],
+            bg=self.COLORS["page_meeting"],
+            fg=self.COLORS["page_meeting_accent"],
         ).pack(side=tk.LEFT)
 
         self.open_only_check = tk.Checkbutton(
@@ -444,11 +454,11 @@ class LayoutMixin:
             text="Jen otevřené",
             variable=self.show_open_only,
             command=self.load_meeting_details,
-            bg=self.COLORS["panel"],
+            bg=self.COLORS["page_meeting"],
             fg=self.COLORS["text"],
-            activebackground=self.COLORS["panel"],
+            activebackground=self.COLORS["page_meeting"],
             activeforeground=self.COLORS["text"],
-            selectcolor=self.COLORS["panel"],
+            selectcolor=self.COLORS["page_meeting"],
             font=(self.FONT, 10),
             relief=tk.FLAT,
             borderwidth=0,
@@ -460,7 +470,7 @@ class LayoutMixin:
             agenda_header,
             text="Dvojklikem označíte bod jako vyřešený.",
             font=(self.FONT, 10),
-            bg=self.COLORS["panel"],
+            bg=self.COLORS["page_meeting"],
             fg=self.COLORS["muted"],
         )
         self.lbl_agenda_count.pack(side=tk.RIGHT)
@@ -598,13 +608,18 @@ class LayoutMixin:
         self.apply_permission_state()
 
 
-    def create_section_header(self, parent, title):
+    def create_page_accent(self, parent, color):
+        tk.Frame(parent, height=4, bg=color).pack(fill=tk.X, pady=(0, 10))
+
+
+    def create_section_header(self, parent, title, color=None):
+        background = parent.cget("bg")
         tk.Label(
             parent,
             text=title,
             font=(self.FONT, 12, "bold"),
-            bg=self.COLORS["panel"],
-            fg=self.COLORS["text"],
+            bg=background,
+            fg=color or self.COLORS["text"],
         ).pack(anchor="w")
 
 

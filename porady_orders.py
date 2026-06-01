@@ -26,6 +26,7 @@ class OrderMixin:
             "Přehled nařízení z porad",
             "Nařízení jsou vedena samostatně mimo úkoly a body programu.",
             right_widget=add_count_label,
+            accent=self.COLORS["page_orders_accent"],
         )
         count_label = count_label_holder["label"]
 
@@ -357,6 +358,7 @@ class OrderMixin:
             content,
             title,
             "Nařízení se ukládá samostatně a není svázané s úkoly ani body programu.",
+            accent=self.COLORS["page_orders_accent"],
         )
         form = tk.Frame(content, bg=self.COLORS["panel"])
         form.pack(fill=tk.BOTH, expand=True)
