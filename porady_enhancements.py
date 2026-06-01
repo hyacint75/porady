@@ -2,6 +2,7 @@
 
 import html
 import os
+import shutil
 import tempfile
 import tkinter as tk
 from datetime import datetime, timedelta
@@ -9,9 +10,24 @@ from tkinter import filedialog, messagebox, ttk
 
 
 class EnhancementMixin:
+    PRIORITY_VALUES = ("Nízká", "Normální", "Vysoká", "Kritická")
+    REQUIREMENT_STATUS_VALUES = ("Nový", "V řešení", "Čeká", "Splněno", "Zamítnuto")
 
     def normalize_person_name(self, name):
         return " ".join((name or "").strip().split()).lower()
+
+
+    def get_next_meeting_number(self, year=None):
+        year = year or datetime.now().year
+        prefix = f"{year}-"
+        c = self.conn.cursor()
+        c.execute("SELECT title FROM meetings WHERE title LIKE ?", (f"{prefix}%",))
+        max_number = 0
+        for (title,) in c.fetchall():
+            number_part = (title or "")[len(prefix):len(prefix) + 3]
+            if number_part.isdigit():
+                max_number = max(max_number, int(number_part))
+        return f"{year}-{max_number + 1:03d}"
 
 
     def log_change(self, record_type, record_id, meeting_id, field_name, old_value, new_value):
@@ -36,6 +52,10 @@ class EnhancementMixin:
                 "admin" if self.can_edit() else "uživatel",
             ),
         )
+
+
+    def log_audit(self, action, detail="", meeting_id=None):
+        self.log_change("audit", 0, meeting_id or 0, action, "", detail)
 
 
     def log_field_changes(self, record_type, record_id, meeting_id, previous, current):
@@ -165,6 +185,116 @@ class EnhancementMixin:
         refresh()
 
 
+    def show_weekly_summary(self):
+        dialog, content = self.create_dialog("Týdenní souhrn", 1180, 680, 900, 500)
+        self.create_dialog_header(
+            content,
+            "Týdenní souhrn",
+            "Položky s termínem v nejbližších 7 dnech a položky po termínu.",
+            accent=self.COLORS["warning"],
+        )
+        records = self.collect_open_records("overdue") + self.collect_open_records("week")
+        self.create_record_tree(content, records)
+
+
+    def show_person_overview(self):
+        dialog, content = self.create_dialog("Přehled podle osoby", 1180, 680, 900, 500)
+        self.create_dialog_header(
+            content,
+            "Přehled podle osoby",
+            "Souhrn otevřených položek podle odpovědné osoby nebo oddělení.",
+            accent=self.COLORS["page_tasks_accent"],
+        )
+
+        filter_row = tk.Frame(content, bg=self.COLORS["panel"])
+        filter_row.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(filter_row, text="Odpovědnost", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).pack(side=tk.LEFT, padx=(0, 8))
+        person_var = tk.StringVar(value="Všichni")
+        person_filter = ttk.Combobox(
+            filter_row,
+            textvariable=person_var,
+            values=["Všichni"] + self.get_people_values(),
+            state="readonly",
+            font=(self.FONT, 10),
+            width=28,
+        )
+        person_filter.pack(side=tk.LEFT, ipady=3)
+
+        tree_holder = tk.Frame(content, bg=self.COLORS["panel"])
+        tree_holder.pack(fill=tk.BOTH, expand=True)
+
+        def refresh():
+            for child in tree_holder.winfo_children():
+                child.destroy()
+            records = self.collect_open_records("all")
+            selected = person_var.get()
+            if selected != "Všichni":
+                records = [record for record in records if (record[7] or "").strip() == selected]
+            self.create_record_tree(tree_holder, records)
+
+        person_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
+        refresh()
+
+
+    def create_record_tree(self, parent, records):
+        columns = ("type", "due", "status", "priority", "owner", "meeting", "description")
+        tree = ttk.Treeview(parent, columns=columns, show="headings", selectmode="browse")
+        for key, title, width in (
+            ("type", "Typ", 90),
+            ("due", "Termín", 95),
+            ("status", "Stav", 95),
+            ("priority", "Priorita", 85),
+            ("owner", "Odpovědnost", 140),
+            ("meeting", "Porada", 260),
+            ("description", "Popis", 420),
+        ):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="w", stretch=key in ("meeting", "description"))
+        self.configure_status_tags(tree)
+        scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        for index, record in enumerate(records):
+            record_type, record_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag, priority, item_status = record
+            detail_text = description or ""
+            if point_title:
+                detail_text = f"{point_title}: {detail_text}"
+            if item_status:
+                status = item_status
+            tree.insert(
+                "",
+                tk.END,
+                iid=str(index),
+                values=(
+                    record_type,
+                    due_date or "-",
+                    status,
+                    priority or "Normální",
+                    owner or "-",
+                    f"{self.format_czech_date(meeting_date)} | {meeting_title}",
+                    detail_text,
+                ),
+                tags=(tag,),
+            )
+
+        def open_selected():
+            selection = tree.selection()
+            if not selection:
+                return
+            meeting_id = records[int(selection[0])][2]
+            if meeting_id:
+                self.current_id = meeting_id
+                self.show_open_only.set(False)
+                self.load_meetings()
+                self.load_meeting_details()
+                self.root.lift()
+
+        tree.bind("<Double-1>", lambda event: open_selected())
+        return tree
+
+
     def collect_open_records(self, filter_type="all"):
         today = datetime.now().date()
         week_end = today + timedelta(days=7)
@@ -185,32 +315,36 @@ class EnhancementMixin:
         c = self.conn.cursor()
         c.execute(
             """SELECT agenda_items.id, agenda_items.description, agenda_items.owner, agenda_items.due_date,
-                      agenda_points.title, meetings.id, meetings.title, meetings.date
+                      agenda_points.title, meetings.id, meetings.title, meetings.date,
+                      COALESCE(agenda_items.priority, 'Normální')
                FROM agenda_items
                JOIN agenda_points ON agenda_points.id = agenda_items.point_id
                JOIN meetings ON meetings.id = agenda_points.meeting_id
                WHERE COALESCE(agenda_items.is_resolved, 0)=0"""
         )
-        for item_id, description, owner, due_date, point_title, meeting_id, meeting_title, meeting_date in c.fetchall():
+        for item_id, description, owner, due_date, point_title, meeting_id, meeting_title, meeting_date, priority in c.fetchall():
             if filter_type in ("all", "today", "week", "overdue", "no_owner", "tasks") and include_record(due_date, owner):
                 status, tag = self.get_record_status(due_date, 0)
-                records.append(("Úkol", item_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag))
+                records.append(("Úkol", item_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag, priority, ""))
 
         for label, table_name, type_filter in (
             ("Nařízení", "meeting_orders", "orders"),
             ("Požadavek", "meeting_requirements", "requirements"),
         ):
+            status_expr = f"COALESCE({table_name}.requirement_status, 'Nový')" if table_name == "meeting_requirements" else "''"
             c.execute(
                 f"""SELECT {table_name}.id, {table_name}.description, {table_name}.owner, {table_name}.due_date,
-                           meetings.id, meetings.title, meetings.date
+                           meetings.id, meetings.title, meetings.date,
+                           COALESCE({table_name}.priority, 'Normální'),
+                           {status_expr}
                     FROM {table_name}
                     LEFT JOIN meetings ON meetings.id = {table_name}.meeting_id
                     WHERE COALESCE({table_name}.is_resolved, 0)=0"""
             )
-            for record_id, description, owner, due_date, meeting_id, meeting_title, meeting_date in c.fetchall():
+            for record_id, description, owner, due_date, meeting_id, meeting_title, meeting_date, priority, item_status in c.fetchall():
                 if filter_type in ("all", "today", "week", "overdue", "no_owner", type_filter) and include_record(due_date, owner):
                     status, tag = self.get_record_status(due_date, 0)
-                    records.append((label, record_id, meeting_id, meeting_title or "", meeting_date or "", "", description, owner, due_date, status, tag))
+                    records.append((label, record_id, meeting_id, meeting_title or "", meeting_date or "", "", description, owner, due_date, status, tag, priority, item_status or ""))
 
         max_date = datetime.max.date()
         records.sort(key=lambda row: (self.parse_due_date(row[8]) is None, self.parse_due_date(row[8]) or max_date, row[0], row[6].lower()))
@@ -251,12 +385,12 @@ class EnhancementMixin:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         for index, record in enumerate(self.collect_open_records(filter_type)):
-            record_type, record_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag = record
+            record_type, record_id, meeting_id, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag, priority, item_status = record
             tree.insert(
                 "",
                 tk.END,
                 iid=str(index),
-                values=(record_type, due_date or "-", status, owner or "-", f"{self.format_czech_date(meeting_date)} | {meeting_title}", point_title or "-", description or ""),
+                values=(record_type, due_date or "-", item_status or status, owner or "-", f"{self.format_czech_date(meeting_date)} | {meeting_title}", point_title or "-", description or ""),
                 tags=(tag,),
             )
             tree.item(str(index), tags=(tag, f"meeting:{meeting_id or 0}"))
@@ -293,21 +427,21 @@ class EnhancementMixin:
                 handle.write("PŘEHLED OTEVŘENÝCH POLOŽEK\n")
                 handle.write("=" * 40 + "\n\n")
                 for record in records:
-                    record_type, _, _, meeting_title, meeting_date, point_title, description, owner, due_date, status, _ = record
+                    record_type, _, _, meeting_title, meeting_date, point_title, description, owner, due_date, status, _, priority, item_status = record
                     handle.write(f"- {record_type}: {description}\n")
                     handle.write(f"  Porada: {self.format_czech_date(meeting_date)} | {meeting_title}\n")
                     if point_title:
                         handle.write(f"  Bod: {point_title}\n")
-                    handle.write(f"  Stav: {status}, termín: {due_date or '-'}, odpovědnost: {owner or '-'}\n\n")
+                    handle.write(f"  Stav: {item_status or status}, priorita: {priority}, termín: {due_date or '-'}, odpovědnost: {owner or '-'}\n\n")
         else:
             rows = []
             for record in records:
-                record_type, _, _, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag = record
+                record_type, _, _, meeting_title, meeting_date, point_title, description, owner, due_date, status, tag, priority, item_status = record
                 rows.append(
                     "<tr>"
                     f"<td>{html.escape(record_type)}</td>"
                     f"<td>{html.escape(due_date or '-')}</td>"
-                    f"<td class='{tag}'>{html.escape(status)}</td>"
+                    f"<td class='{tag}'>{html.escape(item_status or status)}</td>"
                     f"<td>{html.escape(owner or '-')}</td>"
                     f"<td>{html.escape(self.format_czech_date(meeting_date))} | {html.escape(meeting_title)}</td>"
                     f"<td>{html.escape(point_title or '-')}</td>"
@@ -407,6 +541,110 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
         search_entry.bind("<KeyRelease>", lambda event: refresh())
         tree.bind("<Double-1>", lambda event: open_selected())
         self.create_button(content, text="Zavřít", command=dialog.destroy, variant="secondary").pack(anchor="e", pady=(12, 0))
+
+
+    def show_comments_dialog(self, record_type, record_id, meeting_id):
+        dialog, content = self.create_dialog("Komentáře", 820, 560, 680, 440, modal=True)
+        self.create_dialog_header(content, "Komentáře", "Doplňte průběžné poznámky k vybrané položce.", accent=self.COLORS["primary"])
+        comments_frame = tk.Frame(content, bg=self.COLORS["panel"])
+        comments_frame.pack(fill=tk.BOTH, expand=True)
+        columns = ("created_at", "comment")
+        tree = ttk.Treeview(comments_frame, columns=columns, show="headings")
+        tree.heading("created_at", text="Kdy")
+        tree.heading("comment", text="Komentář")
+        tree.column("created_at", width=140, anchor="w", stretch=False)
+        tree.column("comment", width=560, anchor="w")
+        tree.pack(fill=tk.BOTH, expand=True)
+
+        entry = tk.Text(content, height=4, wrap=tk.WORD, font=(self.FONT, 10), relief=tk.SOLID, borderwidth=1)
+        entry.pack(fill=tk.X, pady=(12, 0))
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            c = self.conn.cursor()
+            c.execute(
+                """SELECT created_at, comment_text FROM item_comments
+                   WHERE record_type=? AND record_id=?
+                   ORDER BY datetime(created_at) DESC, id DESC""",
+                (record_type, record_id),
+            )
+            for created_at, comment_text in c.fetchall():
+                tree.insert("", tk.END, values=(created_at, comment_text))
+
+        def add_comment():
+            if not self.require_admin():
+                return
+            text = entry.get("1.0", tk.END).strip()
+            if not text:
+                return
+            c = self.conn.cursor()
+            c.execute(
+                """INSERT INTO item_comments
+                   (record_type, record_id, meeting_id, comment_text, created_at, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (record_type, record_id, meeting_id, text, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "admin"),
+            )
+            self.log_change(record_type, record_id, meeting_id, "komentář", "", text)
+            self.commit_database()
+            entry.delete("1.0", tk.END)
+            refresh()
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(12, 0))
+        self.create_button(actions, text="Přidat komentář", command=add_comment, variant="primary").pack(side=tk.LEFT)
+        self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+        refresh()
+
+
+    def export_database_copy(self):
+        if not self.require_admin():
+            return
+        target = filedialog.asksaveasfilename(
+            title="Exportovat databázi",
+            initialfile=f"porady_export_{datetime.now().strftime('%Y-%m-%d')}.db",
+            defaultextension=".db",
+            filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
+        )
+        if not target:
+            return
+        try:
+            if self.current_id and self.notes_dirty:
+                self.save_notes(show_message=False)
+            shutil.copy2(self.db_path, target)
+            self.log_audit("export databáze", target)
+            self.commit_database()
+            messagebox.showinfo("Export databáze", "Databáze byla exportována.")
+        except OSError as error:
+            messagebox.showerror("Export databáze", f"Export se nepodařil:\n{error}")
+
+
+    def import_database_copy(self):
+        if not self.require_admin():
+            return
+        source = filedialog.askopenfilename(
+            title="Importovat databázi",
+            filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
+        )
+        if not source:
+            return
+        if not messagebox.askyesno("Import databáze", "Aktuální databáze bude nahrazena vybraným souborem. Pokračovat?"):
+            return
+        try:
+            self.create_database_backup("before_import")
+            self.conn.close()
+            shutil.copy2(source, self.db_path)
+            import sqlite3
+            self.conn = sqlite3.connect(self.db_path, timeout=30)
+            self.configure_database_connection()
+            self.create_tables()
+            self.log_audit("import databáze", source)
+            self.commit_database()
+            self.current_id = None
+            self.load_meetings()
+            self.refresh_dashboard_summary()
+            messagebox.showinfo("Import databáze", "Databáze byla importována.")
+        except (OSError, sqlite3.Error) as error:
+            messagebox.showerror("Import databáze", f"Import se nepodařil:\n{error}")
         search_entry.focus_set()
 
 
@@ -421,6 +659,7 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
         if not messagebox.askyesno("Archiv porad", prompt):
             return
         c.execute("UPDATE meetings SET archived=? WHERE id=?", (0 if archived else 1, self.current_id))
+        self.log_audit("archivace porady" if not archived else "vrácení z archivu", str(self.current_id), self.current_id)
         self.commit_database()
         if not archived and not self.show_archived_meetings.get():
             self.current_id = None
@@ -469,6 +708,6 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
         self.configure_status_tags(tree)
         tree.pack(fill=tk.BOTH, expand=True)
         for index, record in enumerate(records[:200]):
-            record_type, _, _, meeting_title, meeting_date, _, description, owner, due_date, status, tag = record
+            record_type, _, _, meeting_title, meeting_date, _, description, owner, due_date, status, tag, priority, item_status = record
             tree.insert("", tk.END, iid=str(index), values=(record_type, due_date or "-", status, owner or "-", f"{self.format_czech_date(meeting_date)} | {meeting_title}", description), tags=(tag,))
         self.create_button(content, text="Zavřít", command=dialog.destroy, variant="primary").pack(anchor="e", pady=(12, 0))

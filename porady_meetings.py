@@ -192,7 +192,7 @@ class MeetingMixin:
         form.pack(fill=tk.X)
         form.columnconfigure(1, weight=1)
 
-        title_var = tk.StringVar()
+        title_var = tk.StringVar(value=self.get_next_meeting_number())
         date_var = tk.StringVar(value=self.get_today_due_date())
 
         tk.Label(
@@ -638,6 +638,7 @@ class MeetingMixin:
                 c.execute("DELETE FROM meeting_orders WHERE meeting_id=?", (self.current_id,))
                 c.execute("DELETE FROM meeting_requirements WHERE meeting_id=?", (self.current_id,))
                 c.execute("DELETE FROM meeting_general_info WHERE meeting_id=?", (self.current_id,))
+                self.log_audit("smazání porady", str(self.current_id), self.current_id)
                 c.execute("DELETE FROM meetings WHERE id=?", (self.current_id,))
                 self.commit_database()
                 self.current_id = None

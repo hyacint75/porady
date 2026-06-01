@@ -328,14 +328,14 @@ class ExportMixin:
     def fetch_export_records(self, table_name):
         c = self.conn.cursor()
         c.execute(
-            f"""SELECT description, owner, due_date, is_resolved
+            f"""SELECT description, owner, due_date, is_resolved, COALESCE(priority, 'Normální')
                 FROM {table_name}
                 WHERE meeting_id=?
                 ORDER BY COALESCE(is_resolved, 0), id""",
             (self.current_id,),
         )
         records = []
-        for description, owner, due_date, is_resolved in c.fetchall():
+        for description, owner, due_date, is_resolved, priority in c.fetchall():
             status_text, status_tag = self.get_record_status(due_date, is_resolved)
             records.append(
                 {
@@ -344,6 +344,7 @@ class ExportMixin:
                     "due_date": due_date or "",
                     "status_text": status_text,
                     "status_tag": status_tag,
+                    "priority": priority or "Normální",
                 }
             )
         return records
@@ -370,6 +371,7 @@ class ExportMixin:
                 meta.append(f"odp.: {record['owner']}")
             if record["due_date"]:
                 meta.append(f"termín: {record['due_date']}")
+            meta.append(f"priorita: {record['priority']}")
             meta.append(f"stav: {record['status_text']}")
             file.write(f"- {record['description']} [{', '.join(meta)}]\n")
 
@@ -394,6 +396,7 @@ class ExportMixin:
         items = []
         for record in records:
             meta_parts = [f"Stav: {html.escape(record['status_text'])}"]
+            meta_parts.append(f"Priorita: {html.escape(record['priority'])}")
             if record["owner"]:
                 meta_parts.append(f"Odpovědnost: {html.escape(record['owner'])}")
             if record["due_date"]:

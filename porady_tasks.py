@@ -221,19 +221,21 @@ class TaskOverviewMixin:
         task_search = ttk.Entry(filters, textvariable=task_search_var, font=(self.FONT, 10), width=28)
         task_search.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        columns = ("due_date", "status", "owner", "meeting", "point", "description")
+        columns = ("due_date", "status", "priority", "owner", "meeting", "point", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         tree.heading("due_date", text="Termín")
         tree.heading("status", text="Stav")
+        tree.heading("priority", text="Priorita")
         tree.heading("owner", text="Odpovědnost")
         tree.heading("meeting", text="Porada")
         tree.heading("point", text="Bod")
         tree.heading("description", text="Úkol")
         tree.column("due_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=95, anchor="w", stretch=False)
+        tree.column("priority", width=85, anchor="w", stretch=False)
         tree.column("owner", width=130, anchor="w", stretch=False)
         tree.column("meeting", width=190, anchor="w")
         tree.column("point", width=150, anchor="w")
@@ -447,6 +449,7 @@ class TaskOverviewMixin:
                 agenda_items.description,
                 agenda_items.owner,
                 agenda_items.due_date,
+                COALESCE(agenda_items.priority, 'Normální'),
                 agenda_points.id,
                 agenda_points.title,
                 meetings.id,
@@ -467,7 +470,7 @@ class TaskOverviewMixin:
         tasks = []
         today = datetime.now().date()
         search_text = (search_text or "").strip().lower()
-        for item_id, description, task_owner, due_date, point_id, point_title, meeting_id, meeting_title, meeting_date in c.fetchall():
+        for item_id, description, task_owner, due_date, priority, point_id, point_title, meeting_id, meeting_title, meeting_date in c.fetchall():
             parsed_due = self.parse_due_date(due_date)
             if overdue_only and not (parsed_due and parsed_due < today):
                 continue
@@ -490,6 +493,7 @@ class TaskOverviewMixin:
                     "description": description,
                     "owner": task_owner or "",
                     "due_date": due_date or "",
+                    "priority": priority or "Normální",
                     "parsed_due": parsed_due,
                     "point_id": point_id,
                     "point_title": point_title,
@@ -536,6 +540,7 @@ class TaskOverviewMixin:
                 values=(
                     task["due_date"] or "-",
                     status,
+                    task["priority"],
                     task["owner"] or "-",
                     f"{self.format_czech_date(task['meeting_date'])} | {task['meeting_title']}",
                     task["point_title"],
@@ -568,6 +573,7 @@ class TaskOverviewMixin:
                    agenda_items.due_date,
                    agenda_items.due_date_reason,
                    agenda_items.is_resolved,
+                   COALESCE(agenda_items.priority, 'Normální'),
                    agenda_points.id,
                    agenda_points.title,
                    meetings.id,
@@ -595,6 +601,7 @@ class TaskOverviewMixin:
             due_date,
             due_date_reason,
             is_resolved,
+            priority,
             point_id,
             point_title,
             meeting_id,
@@ -640,6 +647,7 @@ class TaskOverviewMixin:
         owner_var = tk.StringVar(value=owner or "")
         due_date_var = tk.StringVar(value=due_date or "")
         resolved_var = tk.BooleanVar(value=bool(is_resolved))
+        priority_var = tk.StringVar(value=priority or "Normální")
 
         tk.Label(
             content,
@@ -683,26 +691,44 @@ class TaskOverviewMixin:
 
         tk.Label(
             content,
+            text="Priorita",
+            font=(self.FONT, 10, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+        ).grid(row=4, column=0, sticky="w", pady=(8, 0), padx=(0, 12))
+
+        priority_entry = ttk.Combobox(
+            content,
+            textvariable=priority_var,
+            values=self.PRIORITY_VALUES,
+            state="readonly",
+            font=(self.FONT, 10),
+        )
+        priority_entry.grid(row=4, column=1, sticky="ew", pady=(8, 0), ipady=3)
+
+        tk.Label(
+            content,
             text="Důvod prodloužení",
             font=(self.FONT, 10, "bold"),
             bg=self.COLORS["panel"],
             fg=self.COLORS["text"],
             anchor="nw",
-        ).grid(row=4, column=0, sticky="nw", pady=(8, 0), padx=(0, 12))
+        ).grid(row=5, column=0, sticky="nw", pady=(8, 0), padx=(0, 12))
 
         reason_text = tk.Text(content, height=3, wrap=tk.WORD, font=(self.FONT, 10), relief=tk.SOLID, borderwidth=1)
         reason_text.insert("1.0", due_date_reason or "")
-        reason_text.grid(row=4, column=1, sticky="ew", pady=(8, 0))
+        reason_text.grid(row=5, column=1, sticky="ew", pady=(8, 0))
 
         if not self.can_edit():
             description_text.config(state=tk.DISABLED)
             owner_entry.config(state="disabled")
             due_entry.config(state="disabled")
+            priority_entry.config(state="disabled")
             resolved_check.config(state=tk.DISABLED)
             reason_text.config(state=tk.DISABLED)
 
         actions = tk.Frame(content, bg=self.COLORS["panel"])
-        actions.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(20, 0))
+        actions.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(20, 0))
 
         def save_popup_task():
             if not self.require_admin():
@@ -737,10 +763,11 @@ class TaskOverviewMixin:
                 "termín": due_date,
                 "důvod prodloužení": due_date_reason,
                 "stav": "splněno" if is_resolved else "otevřeno",
+                "priorita": priority,
             }
             c.execute(
                 """UPDATE agenda_items
-                   SET description=?, owner=?, due_date=?, due_date_reason=?, is_resolved=?
+                   SET description=?, owner=?, due_date=?, due_date_reason=?, is_resolved=?, priority=?
                    WHERE id=?""",
                 (
                     new_description,
@@ -748,6 +775,7 @@ class TaskOverviewMixin:
                     new_due_date,
                     new_reason,
                     1 if resolved_var.get() else 0,
+                    priority_var.get(),
                     task_id,
                 ),
             )
@@ -762,6 +790,7 @@ class TaskOverviewMixin:
                     "termín": new_due_date,
                     "důvod prodloužení": new_reason,
                     "stav": "splněno" if resolved_var.get() else "otevřeno",
+                    "priorita": priority_var.get(),
                 },
             )
             self.commit_database()
@@ -798,6 +827,12 @@ class TaskOverviewMixin:
             actions,
             text="Historie",
             command=lambda: self.show_history_dialog("úkol", task_id, meeting_id),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            actions,
+            text="Komentáře",
+            command=lambda: self.show_comments_dialog("úkol", task_id, meeting_id),
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Otevřít poradu", command=open_meeting_from_popup, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))

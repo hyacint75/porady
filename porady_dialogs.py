@@ -100,6 +100,8 @@ class DialogMixin:
             self.conn = sqlite3.connect(self.db_path, timeout=30)
             self.configure_database_connection()
             self.create_tables()
+            self.log_audit("obnova ze zálohy", str(selected_path))
+            self.commit_database()
             self.current_id = None
             self.notes_dirty = False
             self.load_meetings()
@@ -189,7 +191,7 @@ class DialogMixin:
 
 
     def show_data_settings(self):
-        dialog, content = self.create_dialog("Data a zálohy", 720, 390, 580, 330)
+        dialog, content = self.create_dialog("Data a zálohy", 860, 430, 720, 350)
         self.create_dialog_header(
             content,
             "Data a zálohy",
@@ -223,6 +225,22 @@ class DialogMixin:
             actions,
             text="Obnovit ze zálohy",
             command=self.restore_database_backup,
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
+            text="Export DB",
+            command=self.export_database_copy,
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
+            text="Import DB",
+            command=self.import_database_copy,
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         ).pack(side=tk.LEFT, padx=(10, 0))

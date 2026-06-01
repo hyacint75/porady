@@ -83,19 +83,21 @@ class OrderMixin:
         search_entry = ttk.Entry(filters, textvariable=search_var, font=(self.FONT, 10), width=28)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        columns = ("meeting_date", "status", "due_date", "owner", "meeting", "description")
+        columns = ("meeting_date", "status", "priority", "due_date", "owner", "meeting", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         tree.heading("meeting_date", text="Porada dne")
         tree.heading("status", text="Stav")
+        tree.heading("priority", text="Priorita")
         tree.heading("due_date", text="Termín")
         tree.heading("owner", text="Odpovědnost")
         tree.heading("meeting", text="Porada")
         tree.heading("description", text="Nařízení")
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
+        tree.column("priority", width=85, anchor="w", stretch=False)
         tree.column("due_date", width=95, anchor="w", stretch=False)
         tree.column("owner", width=140, anchor="w", stretch=False)
         tree.column("meeting", width=220, anchor="w")
@@ -203,6 +205,7 @@ class OrderMixin:
                 meeting_orders.owner,
                 meeting_orders.due_date,
                 meeting_orders.is_resolved,
+                COALESCE(meeting_orders.priority, 'Normální'),
                 meeting_orders.meeting_id,
                 meetings.title,
                 meetings.date
@@ -219,7 +222,7 @@ class OrderMixin:
         orders = []
         today = datetime.now().date()
         search_text = (search_text or "").strip().lower()
-        for order_id, description, order_owner, due_date, is_resolved, meeting_id, meeting_title, meeting_date in c.fetchall():
+        for order_id, description, order_owner, due_date, is_resolved, priority, meeting_id, meeting_title, meeting_date in c.fetchall():
             parsed_due = self.parse_due_date(due_date)
             is_done = is_resolved == 1
             is_overdue = bool(parsed_due and parsed_due < today and not is_done)
@@ -258,6 +261,7 @@ class OrderMixin:
                     "due_date": due_date or "",
                     "parsed_due": parsed_due,
                     "is_resolved": is_resolved,
+                    "priority": priority or "Normální",
                     "status_text": status_text,
                     "tag": tag,
                     "meeting_id": meeting_id,
@@ -291,6 +295,7 @@ class OrderMixin:
                 values=(
                     order["formatted_meeting_date"] or "-",
                     order["status_text"],
+                    order["priority"],
                     order["due_date"] or "-",
                     order["owner"] or "-",
                     order["meeting_title"] or "-",
@@ -311,7 +316,7 @@ class OrderMixin:
     def fetch_order_detail(self, order_id):
         c = self.conn.cursor()
         c.execute(
-            """SELECT id, meeting_id, description, owner, due_date, is_resolved
+            """SELECT id, meeting_id, description, owner, due_date, is_resolved, COALESCE(priority, 'Normální')
                FROM meeting_orders
                WHERE id=?""",
             (order_id,),
@@ -352,9 +357,10 @@ class OrderMixin:
         owner_var = tk.StringVar()
         due_date_var = tk.StringVar(value=self.get_today_due_date())
         resolved_var = tk.BooleanVar(value=False)
+        priority_var = tk.StringVar(value="Normální")
 
         if existing:
-            _, meeting_id, description, owner, due_date, is_resolved = existing
+            _, meeting_id, description, owner, due_date, is_resolved, priority = existing
             for label, mapped_id in meeting_mapping.items():
                 if mapped_id == meeting_id:
                     meeting_var.set(label)
@@ -362,6 +368,7 @@ class OrderMixin:
             owner_var.set(owner or "")
             due_date_var.set(due_date or "")
             resolved_var.set(is_resolved == 1)
+            priority_var.set(priority or "Normální")
         else:
             if self.current_id:
                 for label, mapped_id in meeting_mapping.items():
@@ -443,6 +450,15 @@ class OrderMixin:
         )
         resolved_check.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
+        priority_entry = ttk.Combobox(
+            field_row,
+            textvariable=priority_var,
+            values=self.PRIORITY_VALUES,
+            state="readonly",
+            font=(self.FONT, 10),
+        )
+        priority_entry.grid(row=1, column=1, sticky="ew", pady=(10, 0), ipady=3)
+
         actions = tk.Frame(form, bg=self.COLORS["panel"])
         actions.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
 
@@ -479,10 +495,11 @@ class OrderMixin:
                     "odpovědnost": existing[3],
                     "termín": existing[4],
                     "stav": "splněno" if existing[5] == 1 else "otevřeno",
+                    "priorita": existing[6],
                 }
                 c.execute(
                     """UPDATE meeting_orders
-                       SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?
+                       SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?, priority=?
                        WHERE id=?""",
                     (
                         meeting_id,
@@ -491,6 +508,7 @@ class OrderMixin:
                         due_date_value,
                         is_resolved,
                         completed_at,
+                        priority_var.get(),
                         order_id,
                     ),
                 )
@@ -505,13 +523,14 @@ class OrderMixin:
                         "odpovědnost": owner_value,
                         "termín": due_date_value,
                         "stav": "splněno" if is_resolved else "otevřeno",
+                        "priorita": priority_var.get(),
                     },
                 )
             else:
                 c.execute(
                     """INSERT INTO meeting_orders
-                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at, priority)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         meeting_id,
                         description_value,
@@ -520,6 +539,7 @@ class OrderMixin:
                         is_resolved,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         completed_at,
+                        priority_var.get(),
                     ),
                 )
                 self.log_change("nařízení", c.lastrowid, meeting_id, "vytvořeno", "", description_value)
@@ -535,6 +555,12 @@ class OrderMixin:
                 actions,
                 text="Historie",
                 command=lambda: self.show_history_dialog("nařízení", order_id, existing[1]),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
+            self.create_button(
+                actions,
+                text="Komentáře",
+                command=lambda: self.show_comments_dialog("nařízení", order_id, existing[1]),
                 variant="secondary",
             ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
@@ -561,6 +587,7 @@ class OrderMixin:
             return
 
         c = self.conn.cursor()
+        self.log_audit("smazání nařízení", selection[0])
         c.execute("DELETE FROM meeting_orders WHERE id=?", (int(selection[0]),))
         self.commit_database()
         self.refresh_dashboard_summary()

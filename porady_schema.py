@@ -21,17 +21,19 @@ class SchemaMixin:
         c.execute(
             """CREATE TABLE IF NOT EXISTS agenda_items
                      (id INTEGER PRIMARY KEY, point_id INTEGER, description TEXT, is_resolved INTEGER,
-                      owner TEXT, due_date TEXT, due_date_reason TEXT)"""
+                      owner TEXT, due_date TEXT, due_date_reason TEXT, priority TEXT DEFAULT 'Normální')"""
         )
         c.execute(
             """CREATE TABLE IF NOT EXISTS meeting_orders
                      (id INTEGER PRIMARY KEY, meeting_id INTEGER, description TEXT, owner TEXT,
-                      due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT)"""
+                      due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT,
+                      priority TEXT DEFAULT 'Normální')"""
         )
         c.execute(
             """CREATE TABLE IF NOT EXISTS meeting_requirements
                      (id INTEGER PRIMARY KEY, meeting_id INTEGER, description TEXT, owner TEXT,
-                      due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT)"""
+                      due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT,
+                      priority TEXT DEFAULT 'Normální', requirement_status TEXT DEFAULT 'Nový')"""
         )
         c.execute(
             """CREATE TABLE IF NOT EXISTS meeting_general_info
@@ -46,6 +48,11 @@ class SchemaMixin:
         c.execute(
             """CREATE TABLE IF NOT EXISTS people
                      (id INTEGER PRIMARY KEY, name TEXT UNIQUE, normalized_name TEXT, is_active INTEGER DEFAULT 1)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS item_comments
+                     (id INTEGER PRIMARY KEY, record_type TEXT, record_id INTEGER, meeting_id INTEGER,
+                      comment_text TEXT, created_at TEXT, created_by TEXT)"""
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_meeting_id ON agenda(meeting_id)")
@@ -64,6 +71,7 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_record ON change_history(record_type, record_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_meeting_id ON change_history(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_people_name ON people(name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_item_comments_record ON item_comments(record_type, record_id)")
         self.commit_database()
         self.ensure_meeting_columns()
         self.ensure_general_info_columns()
@@ -84,6 +92,8 @@ class SchemaMixin:
             c.execute("ALTER TABLE agenda_items ADD COLUMN due_date TEXT")
         if "due_date_reason" not in columns:
             c.execute("ALTER TABLE agenda_items ADD COLUMN due_date_reason TEXT")
+        if "priority" not in columns:
+            c.execute("ALTER TABLE agenda_items ADD COLUMN priority TEXT DEFAULT 'Normální'")
         self.commit_database()
 
 
@@ -95,6 +105,8 @@ class SchemaMixin:
             c.execute("ALTER TABLE meeting_orders ADD COLUMN created_at TEXT")
         if "completed_at" not in columns:
             c.execute("ALTER TABLE meeting_orders ADD COLUMN completed_at TEXT")
+        if "priority" not in columns:
+            c.execute("ALTER TABLE meeting_orders ADD COLUMN priority TEXT DEFAULT 'Normální'")
         self.commit_database()
 
 
@@ -106,6 +118,10 @@ class SchemaMixin:
             c.execute("ALTER TABLE meeting_requirements ADD COLUMN created_at TEXT")
         if "completed_at" not in columns:
             c.execute("ALTER TABLE meeting_requirements ADD COLUMN completed_at TEXT")
+        if "priority" not in columns:
+            c.execute("ALTER TABLE meeting_requirements ADD COLUMN priority TEXT DEFAULT 'Normální'")
+        if "requirement_status" not in columns:
+            c.execute("ALTER TABLE meeting_requirements ADD COLUMN requirement_status TEXT DEFAULT 'Nový'")
         self.commit_database()
 
 

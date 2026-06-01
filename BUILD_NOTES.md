@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.32`
-- Spec: `porady_4_32_plneni_odpovednosti.spec`
-- EXE: `dist/porady_4_32_plneni_odpovednosti.exe`
+- Verze: `4.33`
+- Spec: `porady_4_33_rozsireni_1_8.spec`
+- EXE: `dist/porady_4_33_rozsireni_1_8.exe`

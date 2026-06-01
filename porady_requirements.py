@@ -83,19 +83,23 @@ class RequirementMixin:
         search_entry = ttk.Entry(filters, textvariable=search_var, font=(self.FONT, 10), width=28)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        columns = ("meeting_date", "status", "due_date", "owner", "meeting", "description")
+        columns = ("meeting_date", "status", "req_status", "priority", "due_date", "owner", "meeting", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
         tree.heading("meeting_date", text="Porada dne")
         tree.heading("status", text="Stav")
+        tree.heading("req_status", text="Stav požadavku")
+        tree.heading("priority", text="Priorita")
         tree.heading("due_date", text="Termín")
         tree.heading("owner", text="Odpovědnost")
         tree.heading("meeting", text="Porada")
         tree.heading("description", text="Požadavek")
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
+        tree.column("req_status", width=105, anchor="w", stretch=False)
+        tree.column("priority", width=85, anchor="w", stretch=False)
         tree.column("due_date", width=95, anchor="w", stretch=False)
         tree.column("owner", width=140, anchor="w", stretch=False)
         tree.column("meeting", width=220, anchor="w")
@@ -187,6 +191,8 @@ class RequirementMixin:
                 meeting_requirements.owner,
                 meeting_requirements.due_date,
                 meeting_requirements.is_resolved,
+                COALESCE(meeting_requirements.priority, 'Normální'),
+                COALESCE(meeting_requirements.requirement_status, 'Nový'),
                 meeting_requirements.meeting_id,
                 meetings.title,
                 meetings.date
@@ -204,7 +210,7 @@ class RequirementMixin:
         today = datetime.now().date()
         search_text = (search_text or "").strip().lower()
         for row in c.fetchall():
-            requirement_id, description, item_owner, due_date, is_resolved, meeting_id, meeting_title, meeting_date = row
+            requirement_id, description, item_owner, due_date, is_resolved, priority, requirement_status, meeting_id, meeting_title, meeting_date = row
             parsed_due = self.parse_due_date(due_date)
             is_done = is_resolved == 1
             is_overdue = bool(parsed_due and parsed_due < today and not is_done)
@@ -243,6 +249,8 @@ class RequirementMixin:
                     "due_date": due_date or "",
                     "parsed_due": parsed_due,
                     "is_resolved": is_resolved,
+                    "priority": priority or "Normální",
+                    "requirement_status": requirement_status or "Nový",
                     "status_text": status_text,
                     "tag": tag,
                     "meeting_id": meeting_id,
@@ -276,6 +284,8 @@ class RequirementMixin:
                 values=(
                     item["formatted_meeting_date"] or "-",
                     item["status_text"],
+                    item["requirement_status"],
+                    item["priority"],
                     item["due_date"] or "-",
                     item["owner"] or "-",
                     item["meeting_title"] or "-",
@@ -296,7 +306,8 @@ class RequirementMixin:
     def fetch_requirement_detail(self, requirement_id):
         c = self.conn.cursor()
         c.execute(
-            """SELECT id, meeting_id, description, owner, due_date, is_resolved
+            """SELECT id, meeting_id, description, owner, due_date, is_resolved,
+                      COALESCE(priority, 'Normální'), COALESCE(requirement_status, 'Nový')
                FROM meeting_requirements
                WHERE id=?""",
             (requirement_id,),
@@ -337,9 +348,11 @@ class RequirementMixin:
         owner_var = tk.StringVar()
         due_date_var = tk.StringVar(value=self.get_today_due_date())
         resolved_var = tk.BooleanVar(value=False)
+        priority_var = tk.StringVar(value="Normální")
+        requirement_status_var = tk.StringVar(value="Nový")
 
         if existing:
-            _, meeting_id, description, owner, due_date, is_resolved = existing
+            _, meeting_id, description, owner, due_date, is_resolved, priority, requirement_status = existing
             for label, mapped_id in meeting_mapping.items():
                 if mapped_id == meeting_id:
                     meeting_var.set(label)
@@ -347,6 +360,8 @@ class RequirementMixin:
             owner_var.set(owner or "")
             due_date_var.set(due_date or "")
             resolved_var.set(is_resolved == 1)
+            priority_var.set(priority or "Normální")
+            requirement_status_var.set(requirement_status or "Nový")
         else:
             if self.current_id:
                 for label, mapped_id in meeting_mapping.items():
@@ -413,6 +428,24 @@ class RequirementMixin:
         )
         resolved_check.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
+        priority_entry = ttk.Combobox(
+            field_row,
+            textvariable=priority_var,
+            values=self.PRIORITY_VALUES,
+            state="readonly",
+            font=(self.FONT, 10),
+        )
+        priority_entry.grid(row=1, column=1, sticky="ew", pady=(10, 0), ipady=3)
+
+        status_entry = ttk.Combobox(
+            field_row,
+            textvariable=requirement_status_var,
+            values=self.REQUIREMENT_STATUS_VALUES,
+            state="readonly",
+            font=(self.FONT, 10),
+        )
+        status_entry.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0), ipady=3)
+
         actions = tk.Frame(form, bg=self.COLORS["panel"])
         actions.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
 
@@ -440,6 +473,8 @@ class RequirementMixin:
                 due_date_value = parsed_due.strftime("%d.%m.%Y")
 
             is_resolved = 1 if resolved_var.get() else 0
+            if requirement_status_var.get() in ("Splněno", "Zamítnuto"):
+                is_resolved = 1
             completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_resolved else ""
             c = self.conn.cursor()
             if existing:
@@ -449,10 +484,12 @@ class RequirementMixin:
                     "odpovědnost": existing[3],
                     "termín": existing[4],
                     "stav": "splněno" if existing[5] == 1 else "otevřeno",
+                    "priorita": existing[6],
+                    "stav požadavku": existing[7],
                 }
                 c.execute(
                     """UPDATE meeting_requirements
-                       SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?
+                       SET meeting_id=?, description=?, owner=?, due_date=?, is_resolved=?, completed_at=?, priority=?, requirement_status=?
                        WHERE id=?""",
                     (
                         meeting_id,
@@ -461,6 +498,8 @@ class RequirementMixin:
                         due_date_value,
                         is_resolved,
                         completed_at,
+                        priority_var.get(),
+                        requirement_status_var.get(),
                         requirement_id,
                     ),
                 )
@@ -475,13 +514,15 @@ class RequirementMixin:
                         "odpovědnost": owner_value,
                         "termín": due_date_value,
                         "stav": "splněno" if is_resolved else "otevřeno",
+                        "priorita": priority_var.get(),
+                        "stav požadavku": requirement_status_var.get(),
                     },
                 )
             else:
                 c.execute(
                     """INSERT INTO meeting_requirements
-                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at, priority, requirement_status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         meeting_id,
                         description_value,
@@ -490,6 +531,8 @@ class RequirementMixin:
                         is_resolved,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         completed_at,
+                        priority_var.get(),
+                        requirement_status_var.get(),
                     ),
                 )
                 self.log_change("požadavek", c.lastrowid, meeting_id, "vytvořeno", "", description_value)
@@ -505,6 +548,12 @@ class RequirementMixin:
                 actions,
                 text="Historie",
                 command=lambda: self.show_history_dialog("požadavek", requirement_id, existing[1]),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
+            self.create_button(
+                actions,
+                text="Komentáře",
+                command=lambda: self.show_comments_dialog("požadavek", requirement_id, existing[1]),
                 variant="secondary",
             ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
@@ -531,6 +580,7 @@ class RequirementMixin:
             return
 
         c = self.conn.cursor()
+        self.log_audit("smazání požadavku", selection[0])
         c.execute("DELETE FROM meeting_requirements WHERE id=?", (int(selection[0]),))
         self.commit_database()
         self.refresh_dashboard_summary()
@@ -565,7 +615,7 @@ class RequirementMixin:
                 refresh_callback()
             return
 
-        _, meeting_id, description, owner, due_date, _ = row
+        _, meeting_id, description, owner, due_date, _, _, _ = row
         if not meeting_id:
             messagebox.showwarning("Požadavky", "Požadavek není přiřazený k existující poradě.")
             return
