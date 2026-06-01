@@ -187,6 +187,13 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
+            text="Přehled požadavků",
+            command=self.show_requirement_overview,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        self.create_button(
+            sidebar_actions,
             text="Data a zálohy",
             command=self.show_data_settings,
             variant="secondary",

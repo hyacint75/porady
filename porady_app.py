@@ -16,6 +16,7 @@ from porady_dialogs import DialogMixin
 from porady_export import ExportMixin
 from porady_orders import OrderMixin
 from porady_progress import ProgressMixin
+from porady_requirements import RequirementMixin
 from porady_tasks import TaskOverviewMixin
 from porady_agenda import AgendaMixin
 from porady_layout import LayoutMixin
@@ -23,8 +24,8 @@ from porady_meetings import MeetingMixin
 from porady_schema import SchemaMixin
 
 
-class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.20"
+class MeetingApp(DataMixin, SchemaMixin, DialogMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
+    APP_VERSION = "4.21"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"

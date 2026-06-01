@@ -28,6 +28,11 @@ class SchemaMixin:
                      (id INTEGER PRIMARY KEY, meeting_id INTEGER, description TEXT, owner TEXT,
                       due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT)"""
         )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS meeting_requirements
+                     (id INTEGER PRIMARY KEY, meeting_id INTEGER, description TEXT, owner TEXT,
+                      due_date TEXT, is_resolved INTEGER, created_at TEXT, completed_at TEXT)"""
+        )
         c.execute("CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_meeting_id ON agenda(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_points_meeting_id ON agenda_points(meeting_id)")
@@ -37,9 +42,13 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_orders_meeting_id ON meeting_orders(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_orders_owner ON meeting_orders(owner)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_orders_due_date ON meeting_orders(due_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_meeting_id ON meeting_requirements(meeting_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_owner ON meeting_requirements(owner)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_meeting_requirements_due_date ON meeting_requirements(due_date)")
         self.commit_database()
         self.ensure_agenda_item_columns()
         self.ensure_meeting_order_columns()
+        self.ensure_meeting_requirement_columns()
         self.migrate_legacy_agenda()
 
 
@@ -64,6 +73,17 @@ class SchemaMixin:
             c.execute("ALTER TABLE meeting_orders ADD COLUMN created_at TEXT")
         if "completed_at" not in columns:
             c.execute("ALTER TABLE meeting_orders ADD COLUMN completed_at TEXT")
+        self.commit_database()
+
+
+    def ensure_meeting_requirement_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(meeting_requirements)")
+        columns = {row[1] for row in c.fetchall()}
+        if "created_at" not in columns:
+            c.execute("ALTER TABLE meeting_requirements ADD COLUMN created_at TEXT")
+        if "completed_at" not in columns:
+            c.execute("ALTER TABLE meeting_requirements ADD COLUMN completed_at TEXT")
         self.commit_database()
 
 
