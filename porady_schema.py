@@ -21,7 +21,8 @@ class SchemaMixin:
         c.execute(
             """CREATE TABLE IF NOT EXISTS agenda_items
                      (id INTEGER PRIMARY KEY, point_id INTEGER, description TEXT, is_resolved INTEGER,
-                      owner TEXT, due_date TEXT, due_date_reason TEXT, priority TEXT DEFAULT 'Normální')"""
+                      owner TEXT, due_date TEXT, due_date_reason TEXT, priority TEXT DEFAULT 'Normální',
+                      copied_from_item_id INTEGER)"""
         )
         c.execute(
             """CREATE TABLE IF NOT EXISTS meeting_orders
@@ -94,7 +95,43 @@ class SchemaMixin:
             c.execute("ALTER TABLE agenda_items ADD COLUMN due_date_reason TEXT")
         if "priority" not in columns:
             c.execute("ALTER TABLE agenda_items ADD COLUMN priority TEXT DEFAULT 'Normální'")
+        if "copied_from_item_id" not in columns:
+            c.execute("ALTER TABLE agenda_items ADD COLUMN copied_from_item_id INTEGER")
+            self.backfill_copied_task_links()
+        c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_items_copied_from ON agenda_items(copied_from_item_id)")
         self.commit_database()
+
+
+    def backfill_copied_task_links(self):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT child.id, MAX(parent.id)
+               FROM agenda_items AS child
+               JOIN agenda_points AS child_point ON child_point.id = child.point_id
+               JOIN meetings AS child_meeting ON child_meeting.id = child_point.meeting_id
+               JOIN agenda_points AS parent_point ON parent_point.title = child_point.title
+               JOIN meetings AS parent_meeting ON parent_meeting.id = parent_point.meeting_id
+               JOIN agenda_items AS parent ON parent.point_id = parent_point.id
+               WHERE child.copied_from_item_id IS NULL
+                 AND parent.id <> child.id
+                 AND COALESCE(parent.is_resolved, 0)=0
+                 AND COALESCE(child.is_resolved, 0)=0
+                 AND COALESCE(parent.description, '') = COALESCE(child.description, '')
+                 AND COALESCE(parent.owner, '') = COALESCE(child.owner, '')
+                 AND COALESCE(parent.due_date, '') = COALESCE(child.due_date, '')
+                 AND COALESCE(parent.due_date_reason, '') = COALESCE(child.due_date_reason, '')
+                 AND (
+                     parent_meeting.date < child_meeting.date
+                     OR (parent_meeting.date = child_meeting.date AND parent_meeting.id < child_meeting.id)
+                 )
+               GROUP BY child.id"""
+        )
+        links = c.fetchall()
+        for child_id, parent_id in links:
+            c.execute(
+                "UPDATE agenda_items SET copied_from_item_id=? WHERE id=?",
+                (parent_id, child_id),
+            )
 
 
     def ensure_meeting_order_columns(self):

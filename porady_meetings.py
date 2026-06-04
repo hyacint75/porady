@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import calendar
 import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
 
 class MeetingMixin:
@@ -75,6 +76,8 @@ class MeetingMixin:
     def refresh_due_date_choices(self):
         if not hasattr(self, "entry_new_due_date"):
             return
+        if not isinstance(self.entry_new_due_date, ttk.Combobox):
+            return
 
         today = datetime.now().date()
         future_dates = [(today + timedelta(days=offset)).strftime("%d.%m.%Y") for offset in range(0, 366)]
@@ -87,11 +90,157 @@ class MeetingMixin:
         return datetime.now().date().strftime("%d.%m.%Y")
 
 
-    def open_due_date_picker(self):
-        self.refresh_due_date_choices()
+    def open_due_date_picker(self, event=None):
         self.ensure_active_agenda_point()
-        self.entry_new_due_date.focus_set()
-        self.entry_new_due_date.event_generate("<Down>")
+        return self.open_date_picker_for_widget(self.entry_new_due_date)
+
+
+    def get_date_target_value(self, target):
+        if hasattr(target, "get"):
+            return target.get()
+        return ""
+
+
+    def set_date_target_value(self, target, value):
+        if hasattr(target, "set"):
+            target.set(value)
+            return
+        target.delete(0, tk.END)
+        target.insert(0, value)
+
+
+    def open_date_picker_for_widget(self, widget):
+        self.open_date_picker(widget, anchor_widget=widget)
+        return "break"
+
+
+    def open_date_picker_for_variable(self, variable, anchor_widget=None):
+        self.open_date_picker(variable, anchor_widget=anchor_widget)
+        return "break"
+
+
+    def open_date_picker(self, target, anchor_widget=None):
+        current_text = self.get_date_target_value(target).strip()
+        selected_date = self.parse_due_date(current_text) or datetime.now().date()
+        month_state = {"year": selected_date.year, "month": selected_date.month}
+
+        picker = tk.Toplevel(self.root)
+        picker.title("Vybrat termín")
+        picker.resizable(False, False)
+        picker.configure(bg=self.COLORS["panel"])
+        picker.transient(self.root)
+        picker.grab_set()
+
+        body = tk.Frame(picker, bg=self.COLORS["panel"], padx=14, pady=14)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        header = tk.Frame(body, bg=self.COLORS["panel"])
+        header.pack(fill=tk.X, pady=(0, 10))
+
+        def close_picker():
+            picker.destroy()
+            if anchor_widget is not None:
+                anchor_widget.focus_set()
+
+        def select_date(date_value):
+            self.set_date_target_value(target, date_value.strftime("%d.%m.%Y"))
+            close_picker()
+
+        def change_month(delta):
+            month = month_state["month"] + delta
+            year = month_state["year"]
+            if month < 1:
+                month = 12
+                year -= 1
+            elif month > 12:
+                month = 1
+                year += 1
+            month_state["year"] = year
+            month_state["month"] = month
+            draw_month()
+
+        prev_button = self.create_button(header, text="<", command=lambda: change_month(-1), variant="secondary")
+        prev_button.pack(side=tk.LEFT, padx=(0, 8))
+
+        month_label = tk.Label(
+            header,
+            text="",
+            font=(self.FONT, 12, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+            width=18,
+        )
+        month_label.pack(side=tk.LEFT, expand=True)
+
+        next_button = self.create_button(header, text=">", command=lambda: change_month(1), variant="secondary")
+        next_button.pack(side=tk.RIGHT, padx=(8, 0))
+
+        calendar_grid = tk.Frame(body, bg=self.COLORS["panel"])
+        calendar_grid.pack(fill=tk.BOTH, expand=True)
+
+        def draw_month():
+            for child in calendar_grid.winfo_children():
+                child.destroy()
+
+            year = month_state["year"]
+            month = month_state["month"]
+            month_label.config(text=f"{self.CZECH_MONTHS[month]} {year}")
+
+            for column, weekday in enumerate(("Po", "Út", "St", "Čt", "Pá", "So", "Ne")):
+                tk.Label(
+                    calendar_grid,
+                    text=weekday,
+                    font=(self.FONT, 9, "bold"),
+                    bg=self.COLORS["panel"],
+                    fg=self.COLORS["muted"],
+                    width=4,
+                ).grid(row=0, column=column, padx=2, pady=(0, 4))
+
+            first_weekday, days_in_month = calendar.monthrange(year, month)
+            today = datetime.now().date()
+            for day in range(1, days_in_month + 1):
+                date_value = datetime(year, month, day).date()
+                offset = first_weekday + day - 1
+                row = 1 + offset // 7
+                column = offset % 7
+                is_selected = date_value == selected_date
+                is_today = date_value == today
+                button = tk.Button(
+                    calendar_grid,
+                    text=str(day),
+                    command=lambda value=date_value: select_date(value),
+                    bg=self.COLORS["primary"] if is_selected else ("#e6edf7" if is_today else self.COLORS["panel_soft"]),
+                    fg="white" if is_selected else self.COLORS["text"],
+                    activebackground=self.COLORS["primary_dark"],
+                    activeforeground="white",
+                    font=(self.FONT, 10, "bold" if is_selected or is_today else "normal"),
+                    relief=tk.FLAT,
+                    borderwidth=0,
+                    width=4,
+                    padx=4,
+                    pady=7,
+                    cursor="hand2",
+                )
+                button.grid(row=row, column=column, padx=2, pady=2)
+
+        footer = tk.Frame(body, bg=self.COLORS["panel"])
+        footer.pack(fill=tk.X, pady=(12, 0))
+        self.create_button(footer, text="Dnes", command=lambda: select_date(datetime.now().date()), variant="secondary").pack(side=tk.LEFT)
+        self.create_button(footer, text="Vymazat", command=lambda: (self.set_date_target_value(target, ""), close_picker()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(footer, text="Zavřít", command=close_picker, variant="secondary").pack(side=tk.RIGHT)
+
+        draw_month()
+        picker.update_idletasks()
+        if anchor_widget is not None:
+            x = anchor_widget.winfo_rootx()
+            y = anchor_widget.winfo_rooty() - picker.winfo_height() - 4
+            x = min(max(x, 0), max(picker.winfo_screenwidth() - picker.winfo_width(), 0))
+            y = max(y, 0)
+        else:
+            x = self.root.winfo_rootx() + max((self.root.winfo_width() - picker.winfo_width()) // 2, 0)
+            y = self.root.winfo_rooty() + max((self.root.winfo_height() - picker.winfo_height()) // 2, 0)
+        picker.geometry(f"+{x}+{y}")
+        picker.bind("<Escape>", lambda event: close_picker())
 
 
     def load_meetings(self):
@@ -166,6 +315,7 @@ class MeetingMixin:
         self.lbl_progress_summary.config(text="Bez bodů programu.")
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
+        self.draw_lotus_calendar()
         self.btn_delete.config(state=tk.DISABLED)
         self.btn_edit_date.config(state=tk.DISABLED)
         self.btn_export.config(state=tk.DISABLED)
@@ -266,23 +416,54 @@ class MeetingMixin:
         row = c.fetchone()
         current_date = self.format_czech_date(row[0]) if row else self.get_today_due_date()
 
-        new_date = simpledialog.askstring(
+        dialog, content = self.create_dialog("Datum porady", 460, 260, 420, 240, modal=True)
+        self.create_dialog_header(
+            content,
             "Datum porady",
-            "Zadejte datum porady:",
-            initialvalue=current_date,
+            "Vyberte nebo zadejte datum vybrané porady.",
         )
-        if new_date is None:
-            return
 
-        parsed_date = self.parse_due_date(new_date)
-        if not parsed_date:
-            messagebox.showwarning("Datum porady", "Zadejte platné datum, například 13.05.2026.")
-            return
+        form = tk.Frame(content, bg=self.COLORS["panel"])
+        form.pack(fill=tk.X)
+        form.columnconfigure(1, weight=1)
 
-        c.execute("UPDATE meetings SET date=? WHERE id=?", (parsed_date.strftime("%Y-%m-%d"), self.current_id))
-        self.commit_database()
-        self.load_meetings()
-        self.load_meeting_details()
+        date_var = tk.StringVar(value=current_date)
+        tk.Label(
+            form,
+            text="Datum",
+            font=(self.FONT, 10, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+        ).grid(row=0, column=0, sticky="w", padx=(0, 12))
+        date_entry = ttk.Entry(form, textvariable=date_var, font=(self.FONT, 10))
+        date_entry.grid(row=0, column=1, sticky="ew", ipady=3)
+
+        def open_picker(event=None):
+            return self.open_date_picker_for_variable(date_var, date_entry)
+
+        def save_date():
+            parsed_date = self.parse_due_date(date_var.get())
+            if not parsed_date:
+                messagebox.showwarning("Datum porady", "Zadejte platné datum, například 13.05.2026.")
+                date_entry.focus_set()
+                return
+
+            c.execute("UPDATE meetings SET date=? WHERE id=?", (parsed_date.strftime("%Y-%m-%d"), self.current_id))
+            self.commit_database()
+            dialog.destroy()
+            self.load_meetings()
+            self.load_meeting_details()
+
+        date_entry.bind("<Button-1>", open_picker)
+        date_entry.bind("<Up>", open_picker)
+        date_entry.bind("<Return>", lambda event: save_date())
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, side=tk.BOTTOM, pady=(18, 0))
+        self.create_button(actions, text="Uložit", command=save_date, variant="primary").pack(side=tk.LEFT)
+        self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+
+        date_entry.focus_set()
 
 
     def on_select_meeting(self, event):
@@ -312,6 +493,9 @@ class MeetingMixin:
             self.load_meetings()
             return
         czech_date = self.format_czech_date(meeting[1])
+        meeting_date = self.parse_due_date(meeting[1])
+        if meeting_date:
+            self.lotus_calendar_month = meeting_date.replace(day=1)
         self.lbl_title.config(text=f"{meeting[0]} - {czech_date}")
         self.lbl_subtitle.config(text="Datum je součástí názvu porady.")
         c.execute("SELECT COALESCE(archived, 0) FROM meetings WHERE id=?", (self.current_id,))
@@ -426,6 +610,7 @@ class MeetingMixin:
             self.lbl_progress_summary.config(text="Bez bodů programu.")
         self.draw_progress_overview()
         self.draw_owner_progress_overview()
+        self.draw_lotus_calendar()
         self.refresh_dashboard_summary()
         self.ensure_active_agenda_point()
 

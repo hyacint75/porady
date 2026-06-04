@@ -459,6 +459,11 @@ class TaskOverviewMixin:
             JOIN agenda_points ON agenda_points.id = agenda_items.point_id
             JOIN meetings ON meetings.id = agenda_points.meeting_id
             WHERE agenda_items.is_resolved = 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM agenda_items AS copied_item
+                  WHERE copied_item.copied_from_item_id = agenda_items.id
+              )
         """
         params = []
         if owner and owner != "Všichni":
@@ -673,6 +678,7 @@ class TaskOverviewMixin:
             font=(self.FONT, 10),
         )
         due_entry.grid(row=0, column=1, sticky="ew", ipady=3)
+        due_entry.bind("<Button-1>", lambda event: self.open_date_picker_for_variable(due_date_var, due_entry))
 
         resolved_check = tk.Checkbutton(
             fields,

@@ -320,7 +320,12 @@ class EnhancementMixin:
                FROM agenda_items
                JOIN agenda_points ON agenda_points.id = agenda_items.point_id
                JOIN meetings ON meetings.id = agenda_points.meeting_id
-               WHERE COALESCE(agenda_items.is_resolved, 0)=0"""
+               WHERE COALESCE(agenda_items.is_resolved, 0)=0
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM agenda_items AS copied_item
+                     WHERE copied_item.copied_from_item_id = agenda_items.id
+                 )"""
         )
         for item_id, description, owner, due_date, point_title, meeting_id, meeting_title, meeting_date, priority in c.fetchall():
             if filter_type in ("all", "today", "week", "overdue", "no_owner", "tasks") and include_record(due_date, owner):
@@ -692,6 +697,111 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
         for row in c.fetchall():
             tree.insert("", tk.END, values=row)
         self.create_button(content, text="Zavřít", command=dialog.destroy, variant="secondary").pack(anchor="e", pady=(12, 0))
+
+
+    def show_due_date_changes_overview(self):
+        dialog, content = self.create_dialog("Změny termínů", 1180, 640, 900, 500)
+        self.create_dialog_header(
+            content,
+            "Změny termínů",
+            "Přehled evidovaných změn termínů u úkolů, nařízení a požadavků.",
+            accent=self.COLORS["warning"],
+        )
+
+        tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+        columns = ("when", "type", "old", "new", "by", "meeting", "point", "description")
+        tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
+        for key, title, width in (
+            ("when", "Kdy", 135),
+            ("type", "Typ", 90),
+            ("old", "Původně", 95),
+            ("new", "Nově", 95),
+            ("by", "Kdo", 80),
+            ("meeting", "Porada", 230),
+            ("point", "Bod", 150),
+            ("description", "Popis", 360),
+        ):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="w", stretch=key in ("meeting", "description"))
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT history.changed_at,
+                      history.record_type,
+                      history.old_value,
+                      history.new_value,
+                      history.changed_by,
+                      history.meeting_id,
+                      meetings.title,
+                      meetings.date,
+                      agenda_points.title,
+                      COALESCE(agenda_items.description, meeting_orders.description, meeting_requirements.description, '')
+               FROM change_history AS history
+               LEFT JOIN meetings ON meetings.id = history.meeting_id
+               LEFT JOIN agenda_items
+                      ON history.record_type = 'úkol'
+                     AND agenda_items.id = history.record_id
+               LEFT JOIN agenda_points ON agenda_points.id = agenda_items.point_id
+               LEFT JOIN meeting_orders
+                      ON history.record_type = 'nařízení'
+                     AND meeting_orders.id = history.record_id
+               LEFT JOIN meeting_requirements
+                      ON history.record_type = 'požadavek'
+                     AND meeting_requirements.id = history.record_id
+               WHERE history.field_name = 'termín'
+               ORDER BY datetime(history.changed_at) DESC, history.id DESC
+               LIMIT 500"""
+        )
+        rows = c.fetchall()
+        for index, row in enumerate(rows):
+            changed_at, record_type, old_value, new_value, changed_by, meeting_id, meeting_title, meeting_date, point_title, description = row
+            meeting_text = "-"
+            if meeting_title or meeting_date:
+                meeting_text = f"{self.format_czech_date(meeting_date)} | {meeting_title or ''}".strip()
+            tree.insert(
+                "",
+                tk.END,
+                iid=str(index),
+                values=(
+                    changed_at,
+                    record_type,
+                    old_value or "-",
+                    new_value or "-",
+                    changed_by or "",
+                    meeting_text,
+                    point_title or "-",
+                    description or "",
+                ),
+            )
+
+        if not rows:
+            tree.insert("", tk.END, values=("", "", "", "", "", "", "", "Žádné změny termínů nejsou evidované."))
+
+        def open_selected():
+            selection = tree.selection()
+            if not selection or not rows:
+                return
+            meeting_id = rows[int(selection[0])][5]
+            if meeting_id:
+                self.current_id = meeting_id
+                self.show_open_only.set(False)
+                self.load_meetings()
+                self.load_meeting_details()
+                dialog.destroy()
+                self.root.lift()
+
+        tree.bind("<Double-1>", lambda event: open_selected())
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(12, 0))
+        self.create_button(actions, text="Otevřít poradu", command=open_selected, variant="primary").pack(side=tk.LEFT)
+        self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
 
 
     def show_startup_reminders(self):

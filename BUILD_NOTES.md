@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.35`
-- Spec: `porady_4_35_oprava_rolovani_tlacitek.spec`
-- EXE: `dist/porady_4_35_oprava_rolovani_tlacitek.exe`
+- Verze: `4.47`
+- Spec: `porady_4_47_rolovani_bunek_kalendare.spec`
+- EXE: `dist/porady_4_47_rolovani_bunek_kalendare.exe`

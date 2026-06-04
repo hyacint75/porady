@@ -443,7 +443,7 @@ class AgendaMixin:
             c.execute("SELECT id, title FROM agenda_points WHERE meeting_id=? ORDER BY id", (self.current_id,))
             for old_point_id, point_title in c.fetchall():
                 c.execute(
-                    """SELECT description, owner, due_date, due_date_reason
+                    """SELECT id, description, owner, due_date, due_date_reason
                        FROM agenda_items WHERE point_id=? AND is_resolved=0 ORDER BY id""",
                     (old_point_id,),
                 )
@@ -453,12 +453,12 @@ class AgendaMixin:
 
                 c.execute("INSERT INTO agenda_points (meeting_id, title) VALUES (?, ?)", (new_meeting_id, point_title))
                 new_point_id = c.lastrowid
-                for item in unresolved_items:
+                for old_item_id, description, owner, due_date, due_date_reason in unresolved_items:
                     c.execute(
                         """INSERT INTO agenda_items
-                           (point_id, description, is_resolved, owner, due_date, due_date_reason)
-                           VALUES (?, ?, 0, ?, ?, ?)""",
-                        (new_point_id, item[0], item[1], item[2], item[3]),
+                           (point_id, description, is_resolved, owner, due_date, due_date_reason, copied_from_item_id)
+                           VALUES (?, ?, 0, ?, ?, ?, ?)""",
+                        (new_point_id, description, owner, due_date, due_date_reason, old_item_id),
                     )
                     transferred_count += 1
 

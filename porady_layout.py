@@ -248,6 +248,13 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
+            text="Změny termínů",
+            command=self.show_due_date_changes_overview,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        self.create_button(
+            sidebar_actions,
             text="Přehled podle osoby",
             command=self.show_person_overview,
             variant="secondary",
@@ -446,9 +453,11 @@ class LayoutMixin:
         self.general_info_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_info"], padx=10, pady=14)
         self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_meeting"], padx=10, pady=14)
         self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_progress"], padx=10, pady=14)
+        self.calendar_tab = tk.Frame(self.detail_tabs, bg="#eef6ff", padx=10, pady=14)
         self.detail_tabs.add(self.general_info_tab, text="Všeobecné informace")
         self.detail_tabs.add(self.meeting_tab, text="Body programu")
         self.detail_tabs.add(self.progress_tab, text="Přehled plnění")
+        self.detail_tabs.add(self.calendar_tab, text="Kalendář")
 
         self.create_page_accent(self.general_info_tab, self.COLORS["page_info_accent"])
         self.create_section_header(self.general_info_tab, "Všeobecné informace", self.COLORS["page_info_accent"])
@@ -571,6 +580,66 @@ class LayoutMixin:
         self.owner_progress_canvas.pack(fill=tk.X, pady=(6, 16))
         self.owner_progress_canvas.bind("<Configure>", lambda event: self.draw_owner_progress_overview())
 
+        self.create_page_accent(self.calendar_tab, "#f59e0b")
+        calendar_header = tk.Frame(self.calendar_tab, bg="#eef6ff")
+        calendar_header.pack(fill=tk.X)
+        tk.Label(
+            calendar_header,
+            text="Kalendář položek",
+            font=(self.FONT, 12, "bold"),
+            bg="#eef6ff",
+            fg="#92400e",
+        ).pack(side=tk.LEFT)
+        self.lbl_lotus_calendar_month = tk.Label(
+            calendar_header,
+            text="",
+            font=(self.FONT, 11, "bold"),
+            bg="#eef6ff",
+            fg=self.COLORS["text"],
+        )
+        self.lbl_lotus_calendar_month.pack(side=tk.LEFT, padx=(18, 0))
+        self.create_button(
+            calendar_header,
+            text=">",
+            command=lambda: self.shift_lotus_calendar_month(1),
+            variant="secondary",
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        self.create_button(
+            calendar_header,
+            text="Dnes",
+            command=self.show_lotus_calendar_today,
+            variant="secondary",
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        self.create_button(
+            calendar_header,
+            text="<",
+            command=lambda: self.shift_lotus_calendar_month(-1),
+            variant="secondary",
+        ).pack(side=tk.RIGHT)
+
+        self.lotus_calendar_frame = tk.Frame(self.calendar_tab, bg="#eef6ff")
+        self.lotus_calendar_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+
+        self.lotus_calendar_canvas = tk.Canvas(
+            self.lotus_calendar_frame,
+            height=420,
+            bg="#eef6ff",
+            highlightthickness=1,
+            highlightbackground=self.COLORS["border"],
+            bd=0,
+        )
+        self.lotus_calendar_scrollbar = ttk.Scrollbar(
+            self.lotus_calendar_frame,
+            orient=tk.VERTICAL,
+            command=self.lotus_calendar_canvas.yview,
+        )
+        self.lotus_calendar_canvas.configure(yscrollcommand=self.lotus_calendar_scrollbar.set)
+        self.lotus_calendar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.lotus_calendar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.lotus_calendar_canvas.bind("<Configure>", lambda event: self.draw_lotus_calendar())
+        self.lotus_calendar_canvas.bind("<Enter>", lambda event: self.root.bind_all("<MouseWheel>", self.scroll_lotus_calendar))
+        self.lotus_calendar_canvas.bind("<Leave>", lambda event: self.root.unbind_all("<MouseWheel>"))
+
         agenda_header = tk.Frame(self.meeting_tab, bg=self.COLORS["page_meeting"])
         agenda_header.pack(fill=tk.X)
         tk.Label(
@@ -680,11 +749,12 @@ class LayoutMixin:
         self.entry_new_owner.bind("<FocusIn>", lambda event: self.clear_entry_placeholder(self.entry_new_owner, "Odpovědnost"))
         self.entry_new_owner.bind("<Return>", lambda event: self.add_agenda_item())
 
-        self.entry_new_due_date = ttk.Combobox(self.item_entry_frame, font=(self.FONT, 10), width=12)
+        self.entry_new_due_date = ttk.Entry(self.item_entry_frame, font=(self.FONT, 10), width=12)
         self.entry_new_due_date.pack(side=tk.LEFT, padx=(0, 8), ipady=3)
         self.entry_new_due_date.insert(0, self.get_today_due_date())
         self.entry_new_due_date.bind("<FocusIn>", lambda event: self.clear_entry_placeholder(self.entry_new_due_date, "Termín"))
-        self.entry_new_due_date.bind("<Button-1>", lambda event: self.root.after(1, self.open_due_date_picker))
+        self.entry_new_due_date.bind("<Button-1>", self.open_due_date_picker)
+        self.entry_new_due_date.bind("<Up>", self.open_due_date_picker)
         self.entry_new_due_date.bind("<Return>", lambda event: self.add_agenda_item())
 
         self.btn_add_item = self.create_button(
@@ -778,7 +848,15 @@ class LayoutMixin:
         today = self.parse_due_date(self.get_today_due_date())
         c = self.conn.cursor()
 
-        c.execute("SELECT due_date, is_resolved FROM agenda_items")
+        c.execute(
+            """SELECT due_date, is_resolved
+               FROM agenda_items
+               WHERE NOT EXISTS (
+                   SELECT 1
+                   FROM agenda_items AS copied_item
+                   WHERE copied_item.copied_from_item_id = agenda_items.id
+               )"""
+        )
         for due_date, is_resolved in c.fetchall():
             if is_resolved == 1:
                 continue

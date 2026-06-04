@@ -412,6 +412,7 @@ class RequirementMixin:
             font=(self.FONT, 10),
         )
         due_entry.grid(row=0, column=1, sticky="ew", ipady=3)
+        due_entry.bind("<Button-1>", lambda event: self.open_date_picker_for_variable(due_date_var, due_entry))
 
         resolved_check = tk.Checkbutton(
             field_row,
