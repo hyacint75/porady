@@ -83,6 +83,9 @@ class OrderMixin:
         search_entry = ttk.Entry(filters, textvariable=search_var, font=(self.FONT, 10), width=28)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
+        quick_filters = tk.Frame(content, bg=self.COLORS["panel"])
+        quick_filters.pack(fill=tk.X, pady=(0, 12))
+
         columns = ("meeting_date", "status", "priority", "due_date", "owner", "meeting", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -124,6 +127,26 @@ class OrderMixin:
         search_entry.bind("<KeyRelease>", lambda event: refresh())
         tree.bind("<Double-1>", lambda event: self.open_selected_order_dialog(tree, refresh))
         tree.bind("<Return>", lambda event: self.open_selected_order_dialog(tree, refresh))
+
+        def set_my_orders():
+            owner = self.get_my_owner_value()
+            if not owner:
+                messagebox.showwarning("Moje položky", "Uživatelské jméno Windows není v seznamu odpovědných osob.")
+                return
+            owner_var.set(owner)
+            status_var.set("Otevřená")
+            refresh()
+
+        self.create_button(quick_filters, text="Moje", command=set_my_orders, variant="secondary").pack(side=tk.LEFT)
+        self.create_button(quick_filters, text="Otevřené", command=lambda: (status_var.set("Otevřená"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Dnes", command=lambda: (status_var.set("Dnes"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Po termínu", command=lambda: (status_var.set("Po termínu"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(
+            quick_filters,
+            text="Reset",
+            command=lambda: (owner_var.set("Všichni"), status_var.set("Všechna"), search_var.set(""), refresh()),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.create_button(
             actions,
@@ -211,10 +234,15 @@ class OrderMixin:
                 meetings.date
             FROM meeting_orders
             LEFT JOIN meetings ON meetings.id = meeting_orders.meeting_id
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM meeting_orders AS copied_order
+                WHERE copied_order.copied_from_order_id = meeting_orders.id
+            )
         """
         params = []
         if owner and owner != "Všichni":
-            query += " WHERE meeting_orders.owner = ?"
+            query += " AND meeting_orders.owner = ?"
             params.append(owner)
         query += " ORDER BY meetings.date DESC, meeting_orders.id DESC"
         c.execute(query, params)

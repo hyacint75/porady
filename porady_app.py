@@ -9,7 +9,7 @@ import sys
 import tkinter as tk
 from datetime import datetime, timedelta
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from porady_data import DataMixin
 from porady_dialogs import DialogMixin
@@ -17,6 +17,7 @@ from porady_enhancements import EnhancementMixin
 from porady_export import ExportMixin
 from porady_orders import OrderMixin
 from porady_progress import ProgressMixin
+from porady_problems import ProblemMixin
 from porady_requirements import RequirementMixin
 from porady_tasks import TaskOverviewMixin
 from porady_agenda import AgendaMixin
@@ -25,8 +26,8 @@ from porady_meetings import MeetingMixin
 from porady_schema import SchemaMixin
 
 
-class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMixin, RequirementMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.47"
+class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMixin, RequirementMixin, ProblemMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
+    APP_VERSION = "4.64"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"
@@ -58,6 +59,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
         "page_tasks_accent": "#7c3aed",
         "page_orders_accent": "#dc2626",
         "page_requirements_accent": "#d97706",
+        "page_problems_accent": "#0f766e",
     }
 
     FONT = "Segoe UI"
@@ -94,7 +96,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
         self.conn = sqlite3.connect(self.db_path, timeout=30)
         self.configure_database_connection()
         self.create_tables()
-        self.is_admin = self.show_login_dialog()
+        self.is_admin = False
 
         self.current_id = None
         self.current_agenda_data = []  # Ukládá řádky zobrazené v agendě
@@ -111,13 +113,11 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
         self.meeting_search_var = tk.StringVar()
         self.show_archived_meetings = tk.BooleanVar(value=False)
         self.logo_image = self.load_logo_image()
+        self.porady_workspace_loaded = False
 
         self.create_layout()
-        self.refresh_item_description_choices()
-        self.refresh_owner_choices()
-        self.refresh_due_date_choices()
-        self.load_meetings()
-        self.root.after(700, self.show_startup_reminders)
+        self.show_launcher_home()
+        self.root.after(250, self.show_app_launcher_dialog)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
 
@@ -244,6 +244,8 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
             self.lbl_user_role.config(text=self.get_role_text())
         if hasattr(self, "btn_login"):
             self.btn_login.config(text="Odhlásit admina" if self.can_edit() else "Přihlásit admina")
+        if hasattr(self, "btn_admin_top"):
+            self.btn_admin_top.config(text="Odhlásit admina" if self.can_edit() else "Admin")
         self.apply_permission_state()
 
 
@@ -251,14 +253,107 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
         return "Admin - úpravy povoleny" if self.can_edit() else "Uživatel - jen čtení"
 
 
+    def ask_admin_password(self, error_message=""):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Přihlášení admina")
+        dialog.geometry("460x280")
+        dialog.resizable(False, False)
+        dialog.configure(bg=self.COLORS["app_bg"])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        result = {"password": None}
+        password_var = tk.StringVar()
+
+        panel = tk.Frame(
+            dialog,
+            bg=self.COLORS["panel"],
+            padx=26,
+            pady=24,
+            highlightthickness=1,
+            highlightbackground=self.COLORS["border"],
+        )
+        panel.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
+
+        header = tk.Frame(panel, bg=self.COLORS["panel"])
+        header.pack(fill=tk.X)
+
+        badge = tk.Label(
+            header,
+            text="ADMIN",
+            font=(self.FONT, 9, "bold"),
+            bg=self.COLORS["selection"],
+            fg=self.COLORS["primary"],
+            padx=10,
+            pady=4,
+        )
+        badge.pack(anchor="w", pady=(0, 10))
+
+        tk.Label(
+            header,
+            text="Přihlášení admina",
+            font=(self.FONT, 18, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        tk.Label(
+            header,
+            text="Zadejte heslo pro povolení úprav v aplikacích.",
+            font=(self.FONT, 10),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["muted"],
+            anchor="w",
+            wraplength=380,
+        ).pack(fill=tk.X, pady=(5, 18))
+
+        password_entry = ttk.Entry(panel, textvariable=password_var, show="*", font=(self.FONT, 11))
+        password_entry.pack(fill=tk.X, ipady=5)
+
+        error_label = tk.Label(
+            panel,
+            text=error_message,
+            font=(self.FONT, 9),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["danger"],
+            anchor="w",
+        )
+        error_label.pack(fill=tk.X, pady=(8, 0))
+
+        actions = tk.Frame(panel, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(18, 0))
+
+        def confirm():
+            password = password_var.get()
+            if not password:
+                error_label.config(text="Zadejte heslo admina.")
+                password_entry.focus_set()
+                return
+            result["password"] = password
+            dialog.destroy()
+
+        def cancel():
+            result["password"] = None
+            dialog.destroy()
+
+        self.create_button(actions, text="Přihlásit", command=confirm, variant="primary").pack(side=tk.RIGHT)
+        self.create_button(actions, text="Zrušit", command=cancel, variant="secondary").pack(side=tk.RIGHT, padx=(0, 10))
+
+        password_entry.bind("<Return>", lambda event: confirm())
+        password_entry.bind("<Escape>", lambda event: cancel())
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        self.center_dialog(dialog, 460, 280)
+        password_entry.focus_set()
+        self.root.wait_window(dialog)
+        return result["password"]
+
+
     def toggle_admin_login(self):
         if self.can_edit():
             self.set_admin_mode(False)
             return
 
-        password = simpledialog.askstring("Přihlášení admina", "Zadejte heslo admina:", show="*")
-        if password is None:
-            return
         admin_password = self.get_admin_password()
         if not admin_password:
             messagebox.showwarning(
@@ -266,10 +361,16 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
                 "Admin heslo není nastavené. Doplňte ho v porady_config.ini nebo v proměnné PORADY_ADMIN_PASSWORD.",
             )
             return
-        if password == admin_password:
-            self.set_admin_mode(True)
-        else:
-            messagebox.showwarning("Přihlášení", "Nesprávné heslo admina.")
+
+        error_message = ""
+        while True:
+            password = self.ask_admin_password(error_message)
+            if password is None:
+                return
+            if password == admin_password:
+                self.set_admin_mode(True)
+                return
+            error_message = "Nesprávné heslo admina."
 
 
 def run():

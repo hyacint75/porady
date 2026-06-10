@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.47`
-- Spec: `porady_4_47_rolovani_bunek_kalendare.spec`
-- EXE: `dist/porady_4_47_rolovani_bunek_kalendare.exe`
+- Verze: `4.64`
+- Spec: `porady_4_64_oprava_chybejicich_vazeb.spec`
+- EXE: `dist/porady_4_64_oprava_chybejicich_vazeb.exe`

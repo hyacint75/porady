@@ -337,6 +337,7 @@ class EnhancementMixin:
             ("Požadavek", "meeting_requirements", "requirements"),
         ):
             status_expr = f"COALESCE({table_name}.requirement_status, 'Nový')" if table_name == "meeting_requirements" else "''"
+            copied_column = "copied_from_order_id" if table_name == "meeting_orders" else "copied_from_requirement_id"
             c.execute(
                 f"""SELECT {table_name}.id, {table_name}.description, {table_name}.owner, {table_name}.due_date,
                            meetings.id, meetings.title, meetings.date,
@@ -344,12 +345,32 @@ class EnhancementMixin:
                            {status_expr}
                     FROM {table_name}
                     LEFT JOIN meetings ON meetings.id = {table_name}.meeting_id
-                    WHERE COALESCE({table_name}.is_resolved, 0)=0"""
+                    WHERE COALESCE({table_name}.is_resolved, 0)=0
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {table_name} AS copied_item
+                          WHERE copied_item.{copied_column} = {table_name}.id
+                      )"""
             )
             for record_id, description, owner, due_date, meeting_id, meeting_title, meeting_date, priority, item_status in c.fetchall():
                 if filter_type in ("all", "today", "week", "overdue", "no_owner", type_filter) and include_record(due_date, owner):
                     status, tag = self.get_record_status(due_date, 0)
                     records.append((label, record_id, meeting_id, meeting_title or "", meeting_date or "", "", description, owner, due_date, status, tag, priority, item_status or ""))
+
+        c.execute(
+            """SELECT corrective_actions.id, corrective_actions.problem_title,
+                      corrective_actions.owner, corrective_actions.due_date,
+                      corrective_actions.meeting_id, meetings.title, meetings.date,
+                      COALESCE(corrective_actions.priority, 'Normální'),
+                      COALESCE(corrective_actions.status, 'Nový')
+               FROM corrective_actions
+               LEFT JOIN meetings ON meetings.id = corrective_actions.meeting_id
+               WHERE COALESCE(corrective_actions.status, 'Nový') <> 'Uzavřeno'"""
+        )
+        for record_id, description, owner, due_date, meeting_id, meeting_title, meeting_date, priority, item_status in c.fetchall():
+            if filter_type in ("all", "today", "week", "overdue", "no_owner", "problems") and include_record(due_date, owner):
+                status, tag = self.get_record_status(due_date, 0)
+                records.append(("Problém", record_id, meeting_id, meeting_title or "", meeting_date or "", "", description, owner, due_date, status, tag, priority, item_status))
 
         max_date = datetime.max.date()
         records.sort(key=lambda row: (self.parse_due_date(row[8]) is None, self.parse_due_date(row[8]) or max_date, row[0], row[6].lower()))
@@ -365,6 +386,7 @@ class EnhancementMixin:
             "tasks": "Aktivní úkoly",
             "orders": "Aktivní nařízení",
             "requirements": "Aktivní požadavky",
+            "problems": "Aktivní problémy",
             "all": "Otevřené položky",
         }
         dialog, content = self.create_dialog(titles.get(filter_type, "Otevřené položky"), 1180, 680, 900, 500)

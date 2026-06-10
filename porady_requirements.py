@@ -7,7 +7,7 @@ from tkinter import messagebox, ttk
 
 class RequirementMixin:
 
-    def show_requirement_overview(self):
+    def show_requirement_overview(self, standalone=False, close_callback=None):
         count_label_holder = {}
 
         def add_count_label(parent):
@@ -21,6 +21,14 @@ class RequirementMixin:
             count_label_holder["label"].pack(side=tk.RIGHT, padx=(18, 0))
 
         dialog, content = self.create_dialog("Přehled požadavků", 1180, 680, 900, 500)
+        def close_overview():
+            dialog.destroy()
+            if close_callback:
+                close_callback()
+
+        if standalone:
+            dialog.protocol("WM_DELETE_WINDOW", close_overview)
+
         self.create_dialog_header(
             content,
             "Přehled požadavků z porad",
@@ -73,6 +81,25 @@ class RequirementMixin:
 
         tk.Label(
             filters,
+            text="Problém",
+            font=(self.FONT, 10, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        problem_link_var = tk.StringVar(value="Vše")
+        problem_link_filter = ttk.Combobox(
+            filters,
+            textvariable=problem_link_var,
+            state="readonly",
+            width=13,
+            font=(self.FONT, 10),
+            values=["Vše", "S problémem", "Bez problému"],
+        )
+        problem_link_filter.pack(side=tk.LEFT, padx=(0, 16), ipady=3)
+
+        tk.Label(
+            filters,
             text="Hledat",
             font=(self.FONT, 10, "bold"),
             bg=self.COLORS["panel"],
@@ -83,7 +110,10 @@ class RequirementMixin:
         search_entry = ttk.Entry(filters, textvariable=search_var, font=(self.FONT, 10), width=28)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        columns = ("meeting_date", "status", "req_status", "priority", "due_date", "owner", "meeting", "description")
+        quick_filters = tk.Frame(content, bg=self.COLORS["panel"])
+        quick_filters.pack(fill=tk.X, pady=(0, 12))
+
+        columns = ("meeting_date", "status", "req_status", "priority", "due_date", "owner", "meeting", "problem", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -95,6 +125,7 @@ class RequirementMixin:
         tree.heading("due_date", text="Termín")
         tree.heading("owner", text="Odpovědnost")
         tree.heading("meeting", text="Porada")
+        tree.heading("problem", text="Problém")
         tree.heading("description", text="Požadavek")
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
@@ -103,6 +134,7 @@ class RequirementMixin:
         tree.column("due_date", width=95, anchor="w", stretch=False)
         tree.column("owner", width=140, anchor="w", stretch=False)
         tree.column("meeting", width=220, anchor="w")
+        tree.column("problem", width=85, anchor="w", stretch=False)
         tree.column("description", width=500, anchor="w")
         self.configure_status_tags(tree)
 
@@ -118,14 +150,36 @@ class RequirementMixin:
             tree,
             owner_var.get(),
             status_var.get(),
+            problem_link_var.get(),
             search_var.get(),
             count_label,
         )
         owner_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
         status_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
+        problem_link_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
         search_entry.bind("<KeyRelease>", lambda event: refresh())
         tree.bind("<Double-1>", lambda event: self.open_selected_requirement_dialog(tree, refresh))
         tree.bind("<Return>", lambda event: self.open_selected_requirement_dialog(tree, refresh))
+
+        def set_my_requirements():
+            owner = self.get_my_owner_value()
+            if not owner:
+                messagebox.showwarning("Moje položky", "Uživatelské jméno Windows není v seznamu odpovědných osob.")
+                return
+            owner_var.set(owner)
+            status_var.set("Otevřená")
+            refresh()
+
+        self.create_button(quick_filters, text="Moje", command=set_my_requirements, variant="secondary").pack(side=tk.LEFT)
+        self.create_button(quick_filters, text="Otevřené", command=lambda: (status_var.set("Otevřená"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Dnes", command=lambda: (status_var.set("Dnes"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Po termínu", command=lambda: (status_var.set("Po termínu"), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(
+            quick_filters,
+            text="Reset",
+            command=lambda: (owner_var.set("Všichni"), status_var.set("Všechna"), problem_link_var.set("Vše"), search_var.set(""), refresh()),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.create_button(
             actions,
@@ -161,13 +215,44 @@ class RequirementMixin:
 
         self.create_button(
             actions,
+            text="Převést na problém",
+            command=lambda: self.create_problem_from_selected_requirement(tree, refresh),
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
+            text="Otevřít problém",
+            command=lambda: self.open_selected_requirement_problem(tree, refresh),
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        self.create_button(
+            actions,
             text="Otevřít poradu",
             command=lambda: self.open_selected_requirement_meeting(tree),
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         self.create_button(actions, text="Obnovit", command=refresh, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
-        self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+        if standalone:
+            self.create_button(actions, text="Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
+        else:
+            self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+
+        def toggle_admin_from_requirements():
+            self.toggle_admin_login()
+            dialog.destroy()
+            self.show_requirement_overview(standalone=standalone, close_callback=close_callback)
+
+        self.create_button(
+            actions,
+            text="Odhlásit admina" if self.can_edit() else "Admin",
+            command=toggle_admin_from_requirements,
+            variant="secondary",
+        ).pack(side=tk.RIGHT, padx=(0, 10))
 
         refresh()
 
@@ -182,7 +267,7 @@ class RequirementMixin:
         return [row[0] for row in c.fetchall()]
 
 
-    def fetch_requirements(self, owner=None, status_filter="Všechna", search_text=""):
+    def fetch_requirements(self, owner=None, status_filter="Všechna", problem_link_filter="Vše", search_text=""):
         c = self.conn.cursor()
         query = """
             SELECT
@@ -193,15 +278,21 @@ class RequirementMixin:
                 meeting_requirements.is_resolved,
                 COALESCE(meeting_requirements.priority, 'Normální'),
                 COALESCE(meeting_requirements.requirement_status, 'Nový'),
+                meeting_requirements.linked_problem_id,
                 meeting_requirements.meeting_id,
                 meetings.title,
                 meetings.date
             FROM meeting_requirements
             LEFT JOIN meetings ON meetings.id = meeting_requirements.meeting_id
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM meeting_requirements AS copied_requirement
+                WHERE copied_requirement.copied_from_requirement_id = meeting_requirements.id
+            )
         """
         params = []
         if owner and owner != "Všichni":
-            query += " WHERE meeting_requirements.owner = ?"
+            query += " AND meeting_requirements.owner = ?"
             params.append(owner)
         query += " ORDER BY meetings.date DESC, meeting_requirements.id DESC"
         c.execute(query, params)
@@ -210,7 +301,7 @@ class RequirementMixin:
         today = datetime.now().date()
         search_text = (search_text or "").strip().lower()
         for row in c.fetchall():
-            requirement_id, description, item_owner, due_date, is_resolved, priority, requirement_status, meeting_id, meeting_title, meeting_date = row
+            requirement_id, description, item_owner, due_date, is_resolved, priority, requirement_status, linked_problem_id, meeting_id, meeting_title, meeting_date = row
             parsed_due = self.parse_due_date(due_date)
             is_done = is_resolved == 1
             is_overdue = bool(parsed_due and parsed_due < today and not is_done)
@@ -224,8 +315,13 @@ class RequirementMixin:
                 continue
             if status_filter == "Dnes" and not is_today:
                 continue
+            if problem_link_filter == "S problémem" and not linked_problem_id:
+                continue
+            if problem_link_filter == "Bez problému" and linked_problem_id:
+                continue
 
             formatted_meeting_date = self.format_czech_date(meeting_date) if meeting_date else ""
+            linked_problem_text = f"#{linked_problem_id}" if linked_problem_id else ""
             haystack = " ".join(
                 (
                     description or "",
@@ -234,6 +330,8 @@ class RequirementMixin:
                     meeting_title or "",
                     meeting_date or "",
                     formatted_meeting_date,
+                    str(linked_problem_id or ""),
+                    linked_problem_text,
                 )
             ).lower()
             if search_text and search_text not in haystack:
@@ -251,6 +349,7 @@ class RequirementMixin:
                     "is_resolved": is_resolved,
                     "priority": priority or "Normální",
                     "requirement_status": requirement_status or "Nový",
+                    "linked_problem_id": linked_problem_id,
                     "status_text": status_text,
                     "tag": tag,
                     "meeting_id": meeting_id,
@@ -272,9 +371,14 @@ class RequirementMixin:
         return requirements
 
 
-    def populate_requirement_overview(self, tree, owner, status_filter, search_text, count_label):
+    def populate_requirement_overview(self, tree, owner, status_filter, problem_link_filter, search_text, count_label):
         tree.delete(*tree.get_children())
-        requirements = self.fetch_requirements(owner=owner, status_filter=status_filter, search_text=search_text)
+        requirements = self.fetch_requirements(
+            owner=owner,
+            status_filter=status_filter,
+            problem_link_filter=problem_link_filter,
+            search_text=search_text,
+        )
 
         for item in requirements:
             tree.insert(
@@ -289,6 +393,7 @@ class RequirementMixin:
                     item["due_date"] or "-",
                     item["owner"] or "-",
                     item["meeting_title"] or "-",
+                    f"#{item['linked_problem_id']}" if item["linked_problem_id"] else "-",
                     item["description"],
                 ),
                 tags=(item["tag"],) if item["tag"] else (),
@@ -296,6 +401,8 @@ class RequirementMixin:
 
         if search_text.strip():
             suffix = " nalezených"
+        elif problem_link_filter != "Vše":
+            suffix = f" ({problem_link_filter.lower()})"
         elif status_filter != "Všechna":
             suffix = f" ({status_filter.lower()})"
         else:
@@ -339,6 +446,23 @@ class RequirementMixin:
             "Požadavek se ukládá samostatně a není svázaný s úkoly, body programu ani nařízeními.",
             accent=self.COLORS["page_requirements_accent"],
         )
+        linked_problem_id = None
+        if requirement_id:
+            c = self.conn.cursor()
+            c.execute("SELECT linked_problem_id FROM meeting_requirements WHERE id=?", (requirement_id,))
+            linked_row = c.fetchone()
+            linked_problem_id = linked_row[0] if linked_row else None
+        if linked_problem_id:
+            tk.Label(
+                content,
+                text=f"Převeden na problém #{linked_problem_id}",
+                font=(self.FONT, 10, "bold"),
+                bg=self.COLORS["selection"],
+                fg=self.COLORS["primary"],
+                padx=10,
+                pady=6,
+                anchor="w",
+            ).pack(fill=tk.X, pady=(0, 10))
         form = tk.Frame(content, bg=self.COLORS["panel"])
         form.pack(fill=tk.BOTH, expand=True)
         form.columnconfigure(1, weight=1)
@@ -557,6 +681,13 @@ class RequirementMixin:
                 command=lambda: self.show_comments_dialog("požadavek", requirement_id, existing[1]),
                 variant="secondary",
             ).pack(side=tk.LEFT, padx=(10, 0))
+            if linked_problem_id:
+                self.create_button(
+                    actions,
+                    text="Otevřít související problém",
+                    command=lambda: self.show_problem_dialog(problem_id=linked_problem_id, refresh_callback=refresh_callback),
+                    variant="secondary",
+                ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
         description_text.focus_set()
 
@@ -582,6 +713,7 @@ class RequirementMixin:
 
         c = self.conn.cursor()
         self.log_audit("smazání požadavku", selection[0])
+        c.execute("UPDATE corrective_actions SET source_requirement_id=NULL WHERE source_requirement_id=?", (int(selection[0]),))
         c.execute("DELETE FROM meeting_requirements WHERE id=?", (int(selection[0]),))
         self.commit_database()
         self.refresh_dashboard_summary()
@@ -676,6 +808,92 @@ class RequirementMixin:
         self.create_task_from_requirement(int(selection[0]), refresh_callback=refresh_callback)
 
 
+    def create_problem_from_requirement(self, requirement_id, refresh_callback=None):
+        if not self.require_admin():
+            return
+
+        row = self.fetch_requirement_detail(requirement_id)
+        if not row:
+            messagebox.showwarning("Požadavky", "Vybraný požadavek už neexistuje.")
+            if refresh_callback:
+                refresh_callback()
+            return
+
+        _, meeting_id, description, owner, due_date, is_resolved, priority, requirement_status = row
+        title = (description or "").strip()
+        if not title:
+            messagebox.showwarning("Požadavky", "Vybraný požadavek nemá text.")
+            return
+
+        c = self.conn.cursor()
+        c.execute(
+            "SELECT linked_problem_id FROM meeting_requirements WHERE id=?",
+            (requirement_id,),
+        )
+        linked_row = c.fetchone()
+        if linked_row and linked_row[0]:
+            if messagebox.askyesno(
+                "Převést na problém",
+                f"Požadavek už je propojený s problémem #{linked_row[0]}. Chcete ho otevřít?",
+            ):
+                self.show_problem_dialog(problem_id=linked_row[0], refresh_callback=refresh_callback)
+            return
+
+        def link_problem(problem_id):
+            c2 = self.conn.cursor()
+            c2.execute(
+                "UPDATE meeting_requirements SET linked_problem_id=? WHERE id=?",
+                (problem_id, requirement_id),
+            )
+            self.log_change("požadavek", requirement_id, meeting_id, "propojeno s problémem", "", str(problem_id))
+            self.commit_database()
+            messagebox.showinfo(
+                "Převést na problém",
+                f"Požadavek byl propojený se vzniklým problémem #{problem_id}.",
+            )
+
+        self.show_problem_dialog(
+            refresh_callback=refresh_callback,
+            after_save_callback=link_problem,
+            initial_values={
+                "meeting_id": meeting_id,
+                "problem_title": title,
+                "problem_description": f"Převedeno z požadavku: {title}",
+                "root_cause": "",
+                "corrective_action": "Prověřit požadavek a stanovit nápravné opatření.",
+                "owner": owner or "",
+                "due_date": due_date or "",
+                "status": "Nový" if is_resolved != 1 else "Uzavřeno",
+                "priority": priority or "Normální",
+                "source_requirement_id": requirement_id,
+            },
+        )
+
+
+    def create_problem_from_selected_requirement(self, tree, refresh_callback=None):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Přehled požadavků", "Nejprve vyberte požadavek.")
+            return
+        self.create_problem_from_requirement(int(selection[0]), refresh_callback=refresh_callback)
+
+
+    def open_selected_requirement_problem(self, tree, refresh_callback=None):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Přehled požadavků", "Nejprve vyberte požadavek.")
+            return
+
+        c = self.conn.cursor()
+        c.execute("SELECT linked_problem_id FROM meeting_requirements WHERE id=?", (int(selection[0]),))
+        row = c.fetchone()
+        if not row or not row[0]:
+            messagebox.showwarning("Přehled požadavků", "Vybraný požadavek zatím není propojený s problémem.")
+            return
+
+        self.show_problem_dialog(problem_id=row[0], refresh_callback=refresh_callback)
+
+
     def open_selected_requirement_meeting(self, tree):
         selection = tree.selection()
         if not selection:
@@ -690,6 +908,7 @@ class RequirementMixin:
             self.save_notes(show_message=False)
         self.current_id = row[1]
         self.show_open_only.set(False)
+        self.show_porady_workspace()
         self.load_meetings()
         self.load_meeting_details()
         self.root.lift()

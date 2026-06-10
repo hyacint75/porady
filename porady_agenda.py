@@ -53,6 +53,10 @@ class AgendaMixin:
         tree.tag_configure("today", foreground=self.COLORS["warning"])
         tree.tag_configure("no_due", foreground=self.COLORS["muted"])
         tree.tag_configure("open", foreground=self.COLORS["primary"])
+        tree.tag_configure("problem_new", foreground=self.COLORS["primary"])
+        tree.tag_configure("problem_in_progress", foreground="#7c3aed")
+        tree.tag_configure("problem_verify", foreground=self.COLORS["warning"])
+        tree.tag_configure("problem_closed", foreground=self.COLORS["success"])
 
 
     def get_item_form_values(self):
@@ -463,36 +467,57 @@ class AgendaMixin:
                     transferred_count += 1
 
             c.execute(
-                """SELECT description, owner, due_date, created_at
+                """SELECT id, description, owner, due_date, created_at, priority
                    FROM meeting_orders
                    WHERE meeting_id=? AND COALESCE(is_resolved, 0)=0
                    ORDER BY id""",
                 (self.current_id,),
             )
             order_count = 0
-            for description, owner, due_date, created_at in c.fetchall():
+            for old_order_id, description, owner, due_date, created_at, priority in c.fetchall():
                 c.execute(
                     """INSERT INTO meeting_orders
-                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
-                       VALUES (?, ?, ?, ?, 0, ?, '')""",
-                    (new_meeting_id, description, owner, due_date, created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at,
+                        priority, copied_from_order_id)
+                       VALUES (?, ?, ?, ?, 0, ?, '', ?, ?)""",
+                    (
+                        new_meeting_id,
+                        description,
+                        owner,
+                        due_date,
+                        created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        priority or "Normální",
+                        old_order_id,
+                    ),
                 )
                 order_count += 1
 
             c.execute(
-                """SELECT description, owner, due_date, created_at
+                """SELECT id, description, owner, due_date, created_at, priority,
+                          requirement_status, linked_problem_id
                    FROM meeting_requirements
                    WHERE meeting_id=? AND COALESCE(is_resolved, 0)=0
                    ORDER BY id""",
                 (self.current_id,),
             )
             requirement_count = 0
-            for description, owner, due_date, created_at in c.fetchall():
+            for old_requirement_id, description, owner, due_date, created_at, priority, requirement_status, linked_problem_id in c.fetchall():
                 c.execute(
                     """INSERT INTO meeting_requirements
-                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at)
-                       VALUES (?, ?, ?, ?, 0, ?, '')""",
-                    (new_meeting_id, description, owner, due_date, created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                       (meeting_id, description, owner, due_date, is_resolved, created_at, completed_at,
+                        priority, requirement_status, linked_problem_id, copied_from_requirement_id)
+                       VALUES (?, ?, ?, ?, 0, ?, '', ?, ?, ?, ?)""",
+                    (
+                        new_meeting_id,
+                        description,
+                        owner,
+                        due_date,
+                        created_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        priority or "Normální",
+                        requirement_status or "Nový",
+                        linked_problem_id,
+                        old_requirement_id,
+                    ),
                 )
                 requirement_count += 1
 

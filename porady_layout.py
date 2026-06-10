@@ -1,5 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 
+import getpass
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
@@ -72,6 +73,99 @@ class LayoutMixin:
 
         self.create_sidebar()
         self.create_detail_panel()
+
+
+    def show_launcher_home(self):
+        if hasattr(self, "left_frame"):
+            self.left_frame.pack_forget()
+        if hasattr(self, "right_frame"):
+            self.right_frame.pack_forget()
+        if hasattr(self, "launcher_home_frame"):
+            self.launcher_home_frame.destroy()
+        self.root.configure(bg=self.COLORS["app_bg"])
+        self.root.title(f"Rozcestník aplikací {self.APP_VERSION}")
+        self.launcher_home_frame = tk.Frame(self.root, bg=self.COLORS["app_bg"], padx=32, pady=30)
+        self.launcher_home_frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            self.launcher_home_frame,
+            text="Řídicí panel",
+            font=(self.FONT, 24, "bold"),
+            bg=self.COLORS["app_bg"],
+            fg=self.COLORS["text"],
+        ).pack(anchor="w")
+        tk.Label(
+            self.launcher_home_frame,
+            text="Souhrn otevřených položek napříč aplikacemi.",
+            font=(self.FONT, 11),
+            bg=self.COLORS["app_bg"],
+            fg=self.COLORS["muted"],
+        ).pack(anchor="w", pady=(4, 22))
+
+        summary = self.get_launcher_dashboard_summary()
+        grid = tk.Frame(self.launcher_home_frame, bg=self.COLORS["app_bg"])
+        grid.pack(fill=tk.X)
+        items = (
+            ("open_tasks", "Otevřené úkoly", self.COLORS["page_tasks_accent"]),
+            ("open_orders", "Otevřená nařízení", self.COLORS["page_orders_accent"]),
+            ("open_requirements", "Otevřené požadavky", self.COLORS["page_requirements_accent"]),
+            ("open_problems", "Otevřené problémy", self.COLORS["page_problems_accent"]),
+        )
+        for column, (key, title, color) in enumerate(items):
+            grid.columnconfigure(column, weight=1, uniform="launcher_dashboard")
+            tile = tk.Frame(grid, bg=self.COLORS["panel"], padx=18, pady=16, highlightthickness=1, highlightbackground=self.COLORS["border"])
+            tile.grid(row=0, column=column, sticky="ew", padx=(0, 10 if column < len(items) - 1 else 0))
+            tk.Label(tile, text=title, font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["muted"]).pack(anchor="w")
+            tk.Label(tile, text=str(summary[key]), font=(self.FONT, 26, "bold"), bg=self.COLORS["panel"], fg=color).pack(anchor="w", pady=(8, 0))
+
+        tk.Label(
+            self.launcher_home_frame,
+            text="Okno rozcestníku otevře seznam aplikací. Tento panel zůstává jako rychlý přehled.",
+            font=(self.FONT, 10),
+            bg=self.COLORS["app_bg"],
+            fg=self.COLORS["muted"],
+        ).pack(anchor="w", pady=(20, 0))
+
+
+    def show_porady_workspace(self):
+        if hasattr(self, "launcher_home_frame"):
+            self.launcher_home_frame.destroy()
+        if hasattr(self, "left_frame") and not self.left_frame.winfo_ismapped():
+            self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
+        if hasattr(self, "right_frame") and not self.right_frame.winfo_ismapped():
+            self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        self.root.title(f"Správce porad {self.APP_VERSION}")
+        if not getattr(self, "porady_workspace_loaded", False):
+            self.refresh_item_description_choices()
+            self.refresh_owner_choices()
+            self.refresh_due_date_choices()
+            self.load_meetings()
+            self.porady_workspace_loaded = True
+            self.root.after(900, self.show_startup_reminders)
+
+
+    def show_requirements_application(self):
+        self.show_launcher_home()
+        self.show_requirement_overview(
+            standalone=True,
+            close_callback=self.show_app_launcher_dialog,
+        )
+
+
+    def show_problems_application(self):
+        self.show_launcher_home()
+        self.show_problem_overview(
+            standalone=True,
+            close_callback=self.show_app_launcher_dialog,
+        )
+
+
+    def get_my_owner_value(self):
+        username = getpass.getuser().strip().lower()
+        for person in self.get_people_values():
+            if person.strip().lower() == username:
+                return person
+        return ""
 
 
     def create_sidebar(self):
@@ -281,6 +375,13 @@ class LayoutMixin:
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
+        self.create_button(
+            sidebar_actions,
+            text="Rozcestník aplikací",
+            command=self.show_app_launcher_dialog,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
         self.btn_people_manager = self.create_button(
             sidebar_actions,
             text="Odpovědnosti",
@@ -378,6 +479,14 @@ class LayoutMixin:
         )
         self.btn_edit_date.pack(side=tk.RIGHT, padx=(16, 0))
 
+        self.btn_admin_top = self.create_button(
+            title_row,
+            text="Odhlásit admina" if self.can_edit() else "Admin",
+            command=self.toggle_admin_login,
+            variant="secondary",
+        )
+        self.btn_admin_top.pack(side=tk.RIGHT, padx=(10, 0))
+
         self.dashboard_frame = tk.Frame(self.content, bg=self.COLORS["panel"])
         self.dashboard_frame.pack(fill=tk.X, pady=(0, 18))
         self.dashboard_labels = {}
@@ -385,8 +494,7 @@ class LayoutMixin:
             ("open_tasks", "Úkoly", self.COLORS["page_tasks_accent"], "tasks"),
             ("open_orders", "Nařízení", self.COLORS["page_orders_accent"], "orders"),
             ("open_requirements", "Požadavky", self.COLORS["page_requirements_accent"], "requirements"),
-            ("due_today", "Dnes", self.COLORS["warning"], "today"),
-            ("overdue", "Po termínu", self.COLORS["danger"], "overdue"),
+            ("open_problems", "Problémy", self.COLORS["page_problems_accent"], "problems"),
         )
         for column, (key, title, color, filter_type) in enumerate(dashboard_items):
             self.dashboard_frame.columnconfigure(column, weight=1, uniform="dashboard")
@@ -427,7 +535,7 @@ class LayoutMixin:
             self.dashboard_labels[key] = value_label
             widgets = (tile, accent, text_frame, value_label, title_label)
             for widget in widgets:
-                widget.bind("<Button-1>", lambda event, selected_filter=filter_type: self.show_open_items_overview(selected_filter))
+                widget.bind("<Button-1>", lambda event, selected_filter=filter_type: self.show_dashboard_filter(selected_filter))
                 widget.bind("<Enter>", lambda event, current_tile=tile: current_tile.config(bg="#eef4ff"))
                 widget.bind("<Leave>", lambda event, current_tile=tile: current_tile.config(bg=self.COLORS["panel_soft"]))
 
@@ -834,6 +942,80 @@ class LayoutMixin:
             fg=color or self.COLORS["text"],
         ).pack(anchor="w")
 
+    def get_launcher_dashboard_summary(self):
+        summary = {
+            "open_items": 0,
+            "open_tasks": 0,
+            "open_orders": 0,
+            "open_requirements": 0,
+            "open_problems": 0,
+            "due_today": 0,
+            "overdue": 0,
+        }
+        today = self.parse_due_date(self.get_today_due_date())
+        c = self.conn.cursor()
+
+        dated_sources = (
+            ("agenda_items", "due_date", "is_resolved", "agenda"),
+            ("meeting_orders", "due_date", "is_resolved", "orders"),
+            ("meeting_requirements", "due_date", "is_resolved", "requirements"),
+        )
+        for table_name, due_column, resolved_column, source in dated_sources:
+            if source == "agenda":
+                c.execute(
+                    f"""SELECT {due_column}, {resolved_column}
+                        FROM {table_name}
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM agenda_items AS copied_item
+                            WHERE copied_item.copied_from_item_id = agenda_items.id
+                        )"""
+                )
+            else:
+                copied_column = (
+                    "copied_from_order_id"
+                    if table_name == "meeting_orders"
+                    else "copied_from_requirement_id"
+                )
+                c.execute(
+                    f"""SELECT {due_column}, {resolved_column}
+                        FROM {table_name}
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM {table_name} AS copied_item
+                            WHERE copied_item.{copied_column} = {table_name}.id
+                        )"""
+                )
+            for due_date, is_resolved in c.fetchall():
+                if is_resolved == 1:
+                    continue
+                summary["open_items"] += 1
+                source_key = {
+                    "agenda": "open_tasks",
+                    "orders": "open_orders",
+                    "requirements": "open_requirements",
+                }[source]
+                summary[source_key] += 1
+                parsed_due = self.parse_due_date(due_date)
+                if parsed_due == today:
+                    summary["due_today"] += 1
+                elif parsed_due and parsed_due < today:
+                    summary["overdue"] += 1
+
+        c.execute("SELECT due_date, COALESCE(status, 'Nový') FROM corrective_actions")
+        for due_date, status in c.fetchall():
+            if status == "Uzavřeno":
+                continue
+            summary["open_items"] += 1
+            summary["open_problems"] += 1
+            parsed_due = self.parse_due_date(due_date)
+            if parsed_due == today:
+                summary["due_today"] += 1
+            elif parsed_due and parsed_due < today:
+                summary["overdue"] += 1
+
+        return summary
+
     def refresh_dashboard_summary(self):
         if not hasattr(self, "dashboard_labels"):
             return
@@ -842,6 +1024,7 @@ class LayoutMixin:
             "open_tasks": 0,
             "open_orders": 0,
             "open_requirements": 0,
+            "open_problems": 0,
             "due_today": 0,
             "overdue": 0,
         }
@@ -868,7 +1051,20 @@ class LayoutMixin:
                 summary["overdue"] += 1
 
         for table_name, key in (("meeting_orders", "open_orders"), ("meeting_requirements", "open_requirements")):
-            c.execute(f"SELECT due_date, is_resolved FROM {table_name}")
+            copied_column = (
+                "copied_from_order_id"
+                if table_name == "meeting_orders"
+                else "copied_from_requirement_id"
+            )
+            c.execute(
+                f"""SELECT due_date, is_resolved
+                    FROM {table_name}
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM {table_name} AS copied_item
+                        WHERE copied_item.{copied_column} = {table_name}.id
+                    )"""
+            )
             for due_date, is_resolved in c.fetchall():
                 if is_resolved == 1:
                     continue
@@ -879,8 +1075,21 @@ class LayoutMixin:
                 elif parsed_due and parsed_due < today:
                     summary["overdue"] += 1
 
+        c.execute("SELECT status FROM corrective_actions")
+        for status, in c.fetchall():
+            if (status or "Nový") != "Uzavřeno":
+                summary["open_problems"] += 1
+
         for key, value in summary.items():
-            self.dashboard_labels[key].config(text=str(value))
+            if key in self.dashboard_labels:
+                self.dashboard_labels[key].config(text=str(value))
+
+
+    def show_dashboard_filter(self, filter_type):
+        if filter_type == "problems":
+            self.show_problem_overview()
+            return
+        self.show_open_items_overview(filter_type)
 
 
     def apply_permission_state(self):
@@ -916,6 +1125,9 @@ class LayoutMixin:
                     self.btn_people_manager.pack(**pack_options)
             else:
                 self.btn_people_manager.pack_forget()
+
+        if hasattr(self, "btn_admin_top"):
+            self.btn_admin_top.config(text="Odhlásit admina" if self.can_edit() else "Admin")
 
         for button_name in (
             "btn_add_meeting",

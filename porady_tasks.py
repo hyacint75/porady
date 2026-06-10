@@ -221,6 +221,9 @@ class TaskOverviewMixin:
         task_search = ttk.Entry(filters, textvariable=task_search_var, font=(self.FONT, 10), width=28)
         task_search.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
+        quick_filters = tk.Frame(content, bg=self.COLORS["panel"])
+        quick_filters.pack(fill=tk.X, pady=(0, 12))
+
         columns = ("due_date", "status", "priority", "owner", "meeting", "point", "description")
         tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -262,6 +265,26 @@ class TaskOverviewMixin:
         task_search.bind("<KeyRelease>", lambda event: refresh())
         tree.bind("<Double-1>", lambda event: self.open_selected_task(tree, dialog, refresh))
         tree.bind("<Return>", lambda event: self.open_selected_task(tree, dialog, refresh))
+
+        def set_my_tasks():
+            owner = self.get_my_owner_value()
+            if not owner:
+                messagebox.showwarning("Moje položky", "Uživatelské jméno Windows není v seznamu odpovědných osob.")
+                return
+            owner_var.set(owner)
+            overdue_only.set(False)
+            refresh()
+
+        self.create_button(quick_filters, text="Moje", command=set_my_tasks, variant="secondary").pack(side=tk.LEFT)
+        self.create_button(quick_filters, text="Otevřené", command=lambda: (overdue_only.set(False), task_search_var.set(""), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Dnes", command=lambda: (overdue_only.set(False), task_search_var.set(self.get_today_due_date()), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(quick_filters, text="Po termínu", command=lambda: (overdue_only.set(True), task_search_var.set(""), refresh()), variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(
+            quick_filters,
+            text="Reset",
+            command=lambda: (owner_var.set("Všichni"), overdue_only.set(False), task_search_var.set(""), refresh()),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         self.create_button(
             actions,
