@@ -27,7 +27,7 @@ from porady_schema import SchemaMixin
 
 
 class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMixin, RequirementMixin, ProblemMixin, TaskOverviewMixin, ProgressMixin, ExportMixin, LayoutMixin, MeetingMixin, AgendaMixin):
-    APP_VERSION = "4.64"
+    APP_VERSION = "4.69"
     APP_DIR_NAME = "Porady"
     DB_FILENAME = "porady.db"
     CONFIG_FILENAME = "porady_config.ini"
@@ -181,19 +181,23 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
             result["admin"] = False
             dialog.destroy()
 
-        admin_button = tk.Label(
+        admin_button = tk.Button(
             actions,
-            text="Přihlásit",
+            text="Potvrdit heslo",
+            command=login_admin,
             bg=self.COLORS["primary"],
             fg="white",
+            activebackground=self.COLORS["primary_dark"],
+            activeforeground="white",
             font=(self.FONT, 10, "bold"),
-            width=14,
+            width=16,
             padx=18,
-            pady=14,
+            pady=12,
             cursor="hand2",
+            relief=tk.FLAT,
+            borderwidth=0,
         )
         admin_button.pack(side=tk.LEFT)
-        admin_button.bind("<Button-1>", lambda event: login_admin())
         admin_button.bind("<Enter>", lambda event: admin_button.config(bg=self.COLORS["primary_dark"]))
         admin_button.bind("<Leave>", lambda event: admin_button.config(bg=self.COLORS["primary"]))
 
@@ -256,7 +260,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
     def ask_admin_password(self, error_message=""):
         dialog = tk.Toplevel(self.root)
         dialog.title("Přihlášení admina")
-        dialog.geometry("460x280")
+        dialog.geometry("480x360")
         dialog.resizable(False, False)
         dialog.configure(bg=self.COLORS["app_bg"])
         dialog.transient(self.root)
@@ -322,7 +326,7 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
         error_label.pack(fill=tk.X, pady=(8, 0))
 
         actions = tk.Frame(panel, bg=self.COLORS["panel"])
-        actions.pack(fill=tk.X, pady=(18, 0))
+        actions.pack(fill=tk.X, side=tk.BOTTOM, pady=(22, 0))
 
         def confirm():
             password = password_var.get()
@@ -337,13 +341,18 @@ class MeetingApp(DataMixin, SchemaMixin, DialogMixin, EnhancementMixin, OrderMix
             result["password"] = None
             dialog.destroy()
 
-        self.create_button(actions, text="Přihlásit", command=confirm, variant="primary").pack(side=tk.RIGHT)
+        self.create_button(
+            actions,
+            text="Potvrdit heslo",
+            command=confirm,
+            variant="primary",
+        ).pack(side=tk.RIGHT)
         self.create_button(actions, text="Zrušit", command=cancel, variant="secondary").pack(side=tk.RIGHT, padx=(0, 10))
 
         password_entry.bind("<Return>", lambda event: confirm())
         password_entry.bind("<Escape>", lambda event: cancel())
         dialog.protocol("WM_DELETE_WINDOW", cancel)
-        self.center_dialog(dialog, 460, 280)
+        self.center_dialog(dialog, 480, 360)
         password_entry.focus_set()
         self.root.wait_window(dialog)
         return result["password"]

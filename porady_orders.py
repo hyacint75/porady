@@ -4,10 +4,13 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import messagebox, ttk
 
+from porady_widgets import configure_treeview_sorting, reapply_treeview_sorting
+
 
 class OrderMixin:
 
-    def show_order_overview(self):
+    def show_order_overview(self, parent=None):
+        embedded = parent is not None
         count_label_holder = {}
 
         def add_count_label(parent):
@@ -20,7 +23,11 @@ class OrderMixin:
             )
             count_label_holder["label"].pack(side=tk.RIGHT, padx=(18, 0))
 
-        dialog, content = self.create_dialog("Přehled nařízení", 1180, 680, 900, 500)
+        if embedded:
+            dialog = None
+            content = parent
+        else:
+            dialog, content = self.create_dialog("Přehled nařízení", 1180, 680, 900, 500)
         self.create_dialog_header(
             content,
             "Přehled nařízení z porad",
@@ -98,6 +105,10 @@ class OrderMixin:
         tree.heading("owner", text="Odpovědnost")
         tree.heading("meeting", text="Porada")
         tree.heading("description", text="Nařízení")
+        configure_treeview_sorting(
+            tree,
+            column_types={"meeting_date": "date", "due_date": "date"},
+        )
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
         tree.column("priority", width=85, anchor="w", stretch=False)
@@ -114,6 +125,7 @@ class OrderMixin:
 
         actions = tk.Frame(content, bg=self.COLORS["panel"])
         actions.pack(fill=tk.X, pady=(14, 0))
+        edit_buttons = []
 
         refresh = lambda: self.populate_order_overview(
             tree,
@@ -148,29 +160,35 @@ class OrderMixin:
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(8, 0))
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Nové nařízení",
             command=lambda: self.show_order_dialog(refresh_callback=refresh),
             variant="primary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT)
+        )
+        button.pack(side=tk.LEFT)
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Upravit vybrané",
             command=lambda: self.open_selected_order_dialog(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Smazat vybrané",
             command=lambda: self.delete_selected_order(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
         self.create_button(
             actions,
@@ -186,13 +204,17 @@ class OrderMixin:
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(10, 0))
 
-        self.create_button(
-            actions,
-            text="Zavřít",
-            command=dialog.destroy,
-            variant="secondary",
-        ).pack(side=tk.RIGHT)
+        if not embedded:
+            self.create_button(
+                actions,
+                text="Zavřít",
+                command=dialog.destroy,
+                variant="secondary",
+            ).pack(side=tk.RIGHT)
 
+        if embedded:
+            self.order_tab_refresh = refresh
+            self.order_tab_edit_buttons = edit_buttons
         refresh()
 
 
@@ -332,6 +354,7 @@ class OrderMixin:
                 tags=(order["tag"],) if order["tag"] else (),
             )
 
+        reapply_treeview_sorting(tree)
         if search_text.strip():
             suffix = " nalezených"
         elif status_filter != "Všechna":

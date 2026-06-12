@@ -9,6 +9,6 @@
 
 ## Aktuální build
 
-- Verze: `4.64`
-- Spec: `porady_4_64_oprava_chybejicich_vazeb.spec`
-- EXE: `dist/porady_4_64_oprava_chybejicich_vazeb.exe`
+- Verze: `4.68`
+- Spec: `porady_4_68_rolovaci_prehled_plneni.spec`
+- EXE: `dist/porady_4_68_rolovaci_prehled_plneni.exe`

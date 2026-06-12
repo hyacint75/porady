@@ -4,10 +4,13 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import messagebox, ttk
 
+from porady_widgets import configure_treeview_sorting, reapply_treeview_sorting
+
 
 class RequirementMixin:
 
-    def show_requirement_overview(self, standalone=False, close_callback=None):
+    def show_requirement_overview(self, standalone=False, close_callback=None, parent=None):
+        embedded = parent is not None
         count_label_holder = {}
 
         def add_count_label(parent):
@@ -20,13 +23,19 @@ class RequirementMixin:
             )
             count_label_holder["label"].pack(side=tk.RIGHT, padx=(18, 0))
 
-        dialog, content = self.create_dialog("Přehled požadavků", 1180, 680, 900, 500)
+        if embedded:
+            dialog = None
+            content = parent
+        else:
+            dialog, content = self.create_dialog("Přehled požadavků", 1180, 680, 900, 500)
+
         def close_overview():
-            dialog.destroy()
+            if dialog:
+                dialog.destroy()
             if close_callback:
                 close_callback()
 
-        if standalone:
+        if standalone and dialog:
             dialog.protocol("WM_DELETE_WINDOW", close_overview)
 
         self.create_dialog_header(
@@ -127,6 +136,10 @@ class RequirementMixin:
         tree.heading("meeting", text="Porada")
         tree.heading("problem", text="Problém")
         tree.heading("description", text="Požadavek")
+        configure_treeview_sorting(
+            tree,
+            column_types={"meeting_date": "date", "due_date": "date"},
+        )
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
         tree.column("req_status", width=105, anchor="w", stretch=False)
@@ -145,6 +158,7 @@ class RequirementMixin:
 
         actions = tk.Frame(content, bg=self.COLORS["panel"])
         actions.pack(fill=tk.X, pady=(14, 0))
+        edit_buttons = []
 
         refresh = lambda: self.populate_requirement_overview(
             tree,
@@ -181,53 +195,65 @@ class RequirementMixin:
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(8, 0))
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Nový požadavek",
             command=lambda: self.show_requirement_dialog(refresh_callback=refresh),
             variant="primary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT)
+        )
+        button.pack(side=tk.LEFT)
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Upravit vybrané",
             command=lambda: self.open_selected_requirement_dialog(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Smazat vybrané",
             command=lambda: self.delete_selected_requirement(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Vytvořit úkol",
             command=lambda: self.create_task_from_selected_requirement(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Převést na problém",
             command=lambda: self.create_problem_from_selected_requirement(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Otevřít problém",
             command=lambda: self.open_selected_requirement_problem(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
 
         self.create_button(
             actions,
@@ -239,21 +265,25 @@ class RequirementMixin:
         self.create_button(actions, text="Obnovit", command=refresh, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
         if standalone:
             self.create_button(actions, text="Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
-        else:
+        elif not embedded:
             self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
 
-        def toggle_admin_from_requirements():
-            self.toggle_admin_login()
-            dialog.destroy()
-            self.show_requirement_overview(standalone=standalone, close_callback=close_callback)
+        if not embedded:
+            def toggle_admin_from_requirements():
+                self.toggle_admin_login()
+                dialog.destroy()
+                self.show_requirement_overview(standalone=standalone, close_callback=close_callback)
 
-        self.create_button(
-            actions,
-            text="Odhlásit admina" if self.can_edit() else "Admin",
-            command=toggle_admin_from_requirements,
-            variant="secondary",
-        ).pack(side=tk.RIGHT, padx=(0, 10))
+            self.create_button(
+                actions,
+                text="Odhlásit admina" if self.can_edit() else "Admin",
+                command=toggle_admin_from_requirements,
+                variant="secondary",
+            ).pack(side=tk.RIGHT, padx=(0, 10))
 
+        if embedded:
+            self.requirement_tab_refresh = refresh
+            self.requirement_tab_edit_buttons = edit_buttons
         refresh()
 
 
@@ -399,6 +429,7 @@ class RequirementMixin:
                 tags=(item["tag"],) if item["tag"] else (),
             )
 
+        reapply_treeview_sorting(tree)
         if search_text.strip():
             suffix = " nalezených"
         elif problem_link_filter != "Vše":

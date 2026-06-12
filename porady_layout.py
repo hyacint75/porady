@@ -152,12 +152,60 @@ class LayoutMixin:
         )
 
 
+    def show_requirements_tab(self):
+        if hasattr(self, "detail_tabs") and hasattr(self, "requirements_tab"):
+            self.detail_tabs.select(self.requirements_tab)
+            if hasattr(self, "requirement_tab_refresh"):
+                self.requirement_tab_refresh()
+
+
+    def show_tasks_tab(self):
+        if hasattr(self, "detail_tabs") and hasattr(self, "tasks_tab"):
+            self.detail_tabs.select(self.tasks_tab)
+            if hasattr(self, "task_tab_refresh"):
+                self.task_tab_refresh()
+
+
+    def show_orders_tab(self):
+        if hasattr(self, "detail_tabs") and hasattr(self, "orders_tab"):
+            self.detail_tabs.select(self.orders_tab)
+            if hasattr(self, "order_tab_refresh"):
+                self.order_tab_refresh()
+
+
+    def show_problems_tab(self):
+        if hasattr(self, "detail_tabs") and hasattr(self, "problems_tab"):
+            self.detail_tabs.select(self.problems_tab)
+            if hasattr(self, "problem_tab_refresh"):
+                self.problem_tab_refresh()
+
+
     def show_problems_application(self):
         self.show_launcher_home()
         self.show_problem_overview(
             standalone=True,
             close_callback=self.show_app_launcher_dialog,
         )
+
+    def show_quality_application(self):
+        from porady_quality import QualityApp
+
+        current_window = getattr(self, "quality_window", None)
+        if current_window is not None and current_window.winfo_exists():
+            current_window.deiconify()
+            current_window.lift()
+            current_window.focus_force()
+            return
+
+        self.quality_window = QualityApp(self.root)
+
+        def close_quality():
+            self.quality_window.destroy()
+            self.quality_window = None
+            self.show_app_launcher_dialog()
+
+        self.quality_window.protocol("WM_DELETE_WINDOW", close_quality)
+        self.quality_window.focus_set()
 
 
     def get_my_owner_value(self):
@@ -356,15 +404,15 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
-            text="Přehled úkolů",
-            command=self.show_task_overview,
+            text="Úkoly",
+            command=self.show_tasks_tab,
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
         self.create_button(
             sidebar_actions,
-            text="Přehled nařízení",
-            command=self.show_order_overview,
+            text="Nařízení",
+            command=self.show_orders_tab,
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
@@ -393,8 +441,15 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
-            text="Přehled požadavků",
-            command=self.show_requirement_overview,
+            text="Požadavky",
+            command=self.show_requirements_tab,
+            variant="secondary",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        self.create_button(
+            sidebar_actions,
+            text="Opatření",
+            command=self.show_problems_tab,
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
@@ -556,16 +611,28 @@ class LayoutMixin:
 
         self.detail_tabs = ttk.Notebook(self.content)
         self.detail_tabs.pack(fill=tk.BOTH, expand=True)
-        self.detail_tabs.bind("<<NotebookTabChanged>>", lambda event: self.draw_progress_overview())
+        self.detail_tabs.bind("<<NotebookTabChanged>>", self.on_detail_tab_changed)
 
         self.general_info_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_info"], padx=10, pady=14)
         self.meeting_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_meeting"], padx=10, pady=14)
         self.progress_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["page_progress"], padx=10, pady=14)
+        self.tasks_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=10, pady=14)
+        self.orders_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=10, pady=14)
+        self.requirements_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=10, pady=14)
+        self.problems_tab = tk.Frame(self.detail_tabs, bg=self.COLORS["panel"], padx=10, pady=14)
         self.calendar_tab = tk.Frame(self.detail_tabs, bg="#eef6ff", padx=10, pady=14)
         self.detail_tabs.add(self.general_info_tab, text="Všeobecné informace")
         self.detail_tabs.add(self.meeting_tab, text="Body programu")
         self.detail_tabs.add(self.progress_tab, text="Přehled plnění")
+        self.detail_tabs.add(self.tasks_tab, text="Úkoly")
+        self.detail_tabs.add(self.orders_tab, text="Nařízení")
+        self.detail_tabs.add(self.requirements_tab, text="Požadavky")
+        self.detail_tabs.add(self.problems_tab, text="Opatření")
         self.detail_tabs.add(self.calendar_tab, text="Kalendář")
+        self.show_task_overview(parent=self.tasks_tab)
+        self.show_order_overview(parent=self.orders_tab)
+        self.show_requirement_overview(parent=self.requirements_tab)
+        self.show_problem_overview(parent=self.problems_tab)
 
         self.create_page_accent(self.general_info_tab, self.COLORS["page_info_accent"])
         self.create_section_header(self.general_info_tab, "Všeobecné informace", self.COLORS["page_info_accent"])
@@ -628,7 +695,54 @@ class LayoutMixin:
         self.text_notes = None
 
         self.create_page_accent(self.progress_tab, self.COLORS["page_progress_accent"])
-        progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
+        self.progress_scroll_canvas = tk.Canvas(
+            self.progress_tab,
+            bg=self.COLORS["page_progress"],
+            highlightthickness=0,
+            bd=0,
+            yscrollincrement=24,
+        )
+        self.progress_scrollbar = ttk.Scrollbar(
+            self.progress_tab,
+            orient=tk.VERTICAL,
+            command=self.progress_scroll_canvas.yview,
+        )
+        self.progress_scroll_canvas.configure(yscrollcommand=self.progress_scrollbar.set)
+        self.progress_scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.progress_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.progress_content = tk.Frame(
+            self.progress_scroll_canvas,
+            bg=self.COLORS["page_progress"],
+        )
+        self.progress_content_window = self.progress_scroll_canvas.create_window(
+            (0, 0),
+            window=self.progress_content,
+            anchor="nw",
+        )
+        self.progress_content.bind(
+            "<Configure>",
+            lambda event: self.progress_scroll_canvas.configure(
+                scrollregion=self.progress_scroll_canvas.bbox("all")
+            ),
+        )
+        self.progress_scroll_canvas.bind(
+            "<Configure>",
+            lambda event: self.progress_scroll_canvas.itemconfigure(
+                self.progress_content_window,
+                width=event.width,
+            ),
+        )
+        self.progress_scroll_canvas.bind(
+            "<Enter>",
+            lambda event: self.root.bind_all("<MouseWheel>", self.scroll_progress_overview),
+        )
+        self.progress_scroll_canvas.bind(
+            "<Leave>",
+            lambda event: self.root.unbind_all("<MouseWheel>"),
+        )
+
+        progress_header = tk.Frame(self.progress_content, bg=self.COLORS["page_progress"])
         progress_header.pack(fill=tk.X)
         tk.Label(
             progress_header,
@@ -646,7 +760,7 @@ class LayoutMixin:
         )
         self.lbl_progress_summary.pack(side=tk.RIGHT)
 
-        point_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
+        point_progress_header = tk.Frame(self.progress_content, bg=self.COLORS["page_progress"])
         point_progress_header.pack(fill=tk.X)
         tk.Label(
             point_progress_header,
@@ -657,7 +771,7 @@ class LayoutMixin:
         ).pack(side=tk.LEFT)
 
         self.progress_canvas = tk.Canvas(
-            self.progress_tab,
+            self.progress_content,
             height=118,
             bg=self.COLORS["panel_soft"],
             highlightthickness=1,
@@ -667,7 +781,7 @@ class LayoutMixin:
         self.progress_canvas.pack(fill=tk.X, pady=(6, 16))
         self.progress_canvas.bind("<Configure>", lambda event: self.draw_progress_overview())
 
-        owner_progress_header = tk.Frame(self.progress_tab, bg=self.COLORS["page_progress"])
+        owner_progress_header = tk.Frame(self.progress_content, bg=self.COLORS["page_progress"])
         owner_progress_header.pack(fill=tk.X)
         tk.Label(
             owner_progress_header,
@@ -678,7 +792,7 @@ class LayoutMixin:
         ).pack(side=tk.LEFT)
 
         self.owner_progress_canvas = tk.Canvas(
-            self.progress_tab,
+            self.progress_content,
             height=118,
             bg=self.COLORS["panel_soft"],
             highlightthickness=1,
@@ -932,6 +1046,30 @@ class LayoutMixin:
         tk.Frame(parent, height=4, bg=color).pack(fill=tk.X, pady=(0, 10))
 
 
+    def on_detail_tab_changed(self, event=None):
+        if hasattr(self, "progress_canvas"):
+            self.draw_progress_overview()
+        selected_tab = self.detail_tabs.select()
+        tab_refreshes = (
+            ("tasks_tab", "task_tab_refresh"),
+            ("orders_tab", "order_tab_refresh"),
+            ("requirements_tab", "requirement_tab_refresh"),
+            ("problems_tab", "problem_tab_refresh"),
+        )
+        for tab_name, refresh_name in tab_refreshes:
+            if (
+                hasattr(self, tab_name)
+                and selected_tab == str(getattr(self, tab_name))
+                and hasattr(self, refresh_name)
+            ):
+                getattr(self, refresh_name)()
+                break
+
+
+    def scroll_progress_overview(self, event):
+        self.progress_scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+
     def create_section_header(self, parent, title, color=None):
         background = parent.cget("bg")
         tk.Label(
@@ -1086,8 +1224,14 @@ class LayoutMixin:
 
 
     def show_dashboard_filter(self, filter_type):
-        if filter_type == "problems":
-            self.show_problem_overview()
+        tab_actions = {
+            "tasks": self.show_tasks_tab,
+            "orders": self.show_orders_tab,
+            "requirements": self.show_requirements_tab,
+            "problems": self.show_problems_tab,
+        }
+        if filter_type in tab_actions:
+            tab_actions[filter_type]()
             return
         self.show_open_items_overview(filter_type)
 
@@ -1138,6 +1282,13 @@ class LayoutMixin:
             button = getattr(self, button_name, None)
             if button:
                 button.config(state=edit_state)
+
+        for button in getattr(self, "requirement_tab_edit_buttons", []):
+            button.config(state=edit_state)
+        for button in getattr(self, "order_tab_edit_buttons", []):
+            button.config(state=edit_state)
+        for button in getattr(self, "problem_tab_edit_buttons", []):
+            button.config(state=edit_state)
 
         for button_name in (
             "btn_edit_date",

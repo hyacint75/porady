@@ -1,6 +1,87 @@
 # -*- coding: utf-8 -*-
 
 import tkinter as tk
+from datetime import datetime
+
+
+def _treeview_sort_value(value, value_type):
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return None
+
+    if value_type == "date":
+        for date_format in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return (0, datetime.strptime(text, date_format))
+            except ValueError:
+                continue
+        return (1, text.casefold())
+
+    if value_type == "number":
+        try:
+            return (0, float(text.replace(" ", "").replace(",", ".")))
+        except ValueError:
+            return (1, text.casefold())
+
+    return (0, text.casefold())
+
+
+def sort_treeview(tree, column=None, descending=None):
+    if column is None:
+        column = getattr(tree, "_sort_column", None)
+        if column is None:
+            return
+
+    current_column = getattr(tree, "_sort_column", None)
+    current_descending = getattr(tree, "_sort_descending", False)
+    if descending is None:
+        descending = not current_descending if column == current_column else False
+
+    value_type = getattr(tree, "_sort_column_types", {}).get(column, "text")
+    populated = []
+    empty = []
+    for item_id in tree.get_children(""):
+        value = _treeview_sort_value(tree.set(item_id, column), value_type)
+        if value is None:
+            empty.append(item_id)
+        else:
+            populated.append((value, item_id))
+
+    populated.sort(key=lambda item: item[0], reverse=descending)
+    ordered_items = [item_id for _, item_id in populated] + empty
+    for index, item_id in enumerate(ordered_items):
+        tree.move(item_id, "", index)
+
+    tree._sort_column = column
+    tree._sort_descending = descending
+    for column_id, title in getattr(tree, "_sort_titles", {}).items():
+        marker = " ▼" if column_id == column and descending else " ▲" if column_id == column else ""
+        tree.heading(column_id, text=title + marker)
+
+
+def configure_treeview_sorting(tree, column_types=None):
+    tree._sort_column_types = column_types or {}
+    tree._sort_titles = {
+        column: tree.heading(column, "text")
+        for column in tree["columns"]
+    }
+    tree._sort_column = None
+    tree._sort_descending = False
+    for column in tree["columns"]:
+        tree.heading(
+            column,
+            command=lambda selected_column=column: sort_treeview(tree, selected_column),
+        )
+
+
+def reapply_treeview_sorting(tree):
+    column = getattr(tree, "_sort_column", None)
+    if column is not None:
+        sort_treeview(
+            tree,
+            column=column,
+            descending=getattr(tree, "_sort_descending", False),
+        )
 
 
 class RoundedFrame(tk.Canvas):

@@ -130,6 +130,7 @@ class SchemaMixin:
             ("Porady", "__PORADY__", -100),
             ("Požadavky", "__REQUIREMENTS__", -90),
             ("Problémy a nápravná opatření", "__PROBLEMS__", -80),
+            ("Vyhodnocení kvality", "__QUALITY__", -70),
         )
         for name, target_path, sort_order in default_launchers:
             c.execute("SELECT id FROM app_launchers WHERE target_path=?", (target_path,))

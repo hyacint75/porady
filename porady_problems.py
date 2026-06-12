@@ -6,12 +6,15 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import filedialog, messagebox, ttk
 
+from porady_widgets import configure_treeview_sorting, reapply_treeview_sorting
+
 
 class ProblemMixin:
     PROBLEM_PRIORITY_VALUES = ("Nízká", "Normální", "Vysoká", "Kritická")
     PROBLEM_STATUS_VALUES = ("Nový", "V řešení", "Ověření účinnosti", "Uzavřeno")
 
-    def show_problem_overview(self, standalone=False, close_callback=None):
+    def show_problem_overview(self, standalone=False, close_callback=None, parent=None):
+        embedded = parent is not None
         count_label_holder = {}
 
         def add_count_label(parent):
@@ -24,14 +27,19 @@ class ProblemMixin:
             )
             count_label_holder["label"].pack(side=tk.RIGHT, padx=(18, 0))
 
-        dialog, content = self.create_dialog("Problémy a nápravná opatření", 1220, 700, 940, 520)
+        if embedded:
+            dialog = None
+            content = parent
+        else:
+            dialog, content = self.create_dialog("Problémy a nápravná opatření", 1220, 700, 940, 520)
 
         def close_overview():
-            dialog.destroy()
+            if dialog:
+                dialog.destroy()
             if close_callback:
                 close_callback()
 
-        if standalone:
+        if standalone and dialog:
             dialog.protocol("WM_DELETE_WINDOW", close_overview)
 
         self.create_dialog_header(
@@ -97,6 +105,10 @@ class ProblemMixin:
         tree.heading("requirement", text="Požadavek")
         tree.heading("problem", text="Problém")
         tree.heading("action", text="Nápravné opatření")
+        configure_treeview_sorting(
+            tree,
+            column_types={"created_at": "date", "due_date": "date"},
+        )
         tree.column("created_at", width=95, anchor="w", stretch=False)
         tree.column("status", width=130, anchor="w", stretch=False)
         tree.column("priority", width=85, anchor="w", stretch=False)
@@ -115,6 +127,7 @@ class ProblemMixin:
 
         actions = tk.Frame(content, bg=self.COLORS["panel"])
         actions.pack(fill=tk.X, pady=(14, 0))
+        edit_buttons = []
 
         refresh = lambda: self.populate_problem_overview(
             tree,
@@ -151,34 +164,42 @@ class ProblemMixin:
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(8, 0))
 
-        self.create_button(
+        button = self.create_button(
             actions,
             text="Nový problém",
             command=lambda: self.show_problem_dialog(refresh_callback=refresh),
             variant="primary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT)
-        self.create_button(
+        )
+        button.pack(side=tk.LEFT)
+        edit_buttons.append(button)
+        button = self.create_button(
             actions,
             text="Upravit vybrané",
             command=lambda: self.open_selected_problem_dialog(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
-        self.create_button(
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
+        button = self.create_button(
             actions,
             text="Smazat vybrané",
             command=lambda: self.delete_selected_problem(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
-        self.create_button(
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
+        button = self.create_button(
             actions,
             text="Otevřít požadavek",
             command=lambda: self.open_selected_problem_requirement(tree, refresh),
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        )
+        button.pack(side=tk.LEFT, padx=(10, 0))
+        edit_buttons.append(button)
         self.create_button(
             actions,
             text="Otevřít poradu",
@@ -200,21 +221,25 @@ class ProblemMixin:
 
         if standalone:
             self.create_button(actions, text="Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
-        else:
+        elif not embedded:
             self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
 
-        def toggle_admin_from_problems():
-            self.toggle_admin_login()
-            dialog.destroy()
-            self.show_problem_overview(standalone=standalone, close_callback=close_callback)
+        if not embedded:
+            def toggle_admin_from_problems():
+                self.toggle_admin_login()
+                dialog.destroy()
+                self.show_problem_overview(standalone=standalone, close_callback=close_callback)
 
-        self.create_button(
-            actions,
-            text="Odhlásit admina" if self.can_edit() else "Admin",
-            command=toggle_admin_from_problems,
-            variant="secondary",
-        ).pack(side=tk.RIGHT, padx=(0, 10))
+            self.create_button(
+                actions,
+                text="Odhlásit admina" if self.can_edit() else "Admin",
+                command=toggle_admin_from_problems,
+                variant="secondary",
+            ).pack(side=tk.RIGHT, padx=(0, 10))
 
+        if embedded:
+            self.problem_tab_refresh = refresh
+            self.problem_tab_edit_buttons = edit_buttons
         refresh()
 
     def fetch_problems(self, owner=None, status_filter="Všechny", source_filter="Vše", search_text=""):
@@ -366,6 +391,7 @@ class ProblemMixin:
                 ),
                 tags=(item["tag"],) if item["tag"] else (),
             )
+        reapply_treeview_sorting(tree)
         suffix = ""
         if search_text.strip():
             suffix = " nalezených"

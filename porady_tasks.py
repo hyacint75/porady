@@ -4,6 +4,8 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import messagebox, ttk
 
+from porady_widgets import configure_treeview_sorting, reapply_treeview_sorting
+
 
 class TaskOverviewMixin:
 
@@ -94,6 +96,10 @@ class TaskOverviewMixin:
         tree.heading("meeting", text="Porada")
         tree.heading("point", text="Bod")
         tree.heading("description", text="Nařízení")
+        configure_treeview_sorting(
+            tree,
+            column_types={"meeting_date": "date", "due_date": "date"},
+        )
         tree.column("meeting_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=90, anchor="w", stretch=False)
         tree.column("due_date", width=95, anchor="w", stretch=False)
@@ -148,7 +154,8 @@ class TaskOverviewMixin:
         refresh()
 
 
-    def show_task_overview(self):
+    def show_task_overview(self, parent=None):
+        embedded = parent is not None
         count_label_holder = {}
 
         def add_count_label(parent):
@@ -161,7 +168,11 @@ class TaskOverviewMixin:
             )
             count_label_holder["label"].pack(side=tk.RIGHT, padx=(18, 0))
 
-        dialog, content = self.create_dialog("Přehled úkolů", 1080, 650, 840, 460)
+        if embedded:
+            dialog = None
+            content = parent
+        else:
+            dialog, content = self.create_dialog("Přehled úkolů", 1080, 650, 840, 460)
         self.create_dialog_header(
             content,
             "Přehled otevřených úkolů",
@@ -236,6 +247,7 @@ class TaskOverviewMixin:
         tree.heading("meeting", text="Porada")
         tree.heading("point", text="Bod")
         tree.heading("description", text="Úkol")
+        configure_treeview_sorting(tree, column_types={"due_date": "date"})
         tree.column("due_date", width=95, anchor="w", stretch=False)
         tree.column("status", width=95, anchor="w", stretch=False)
         tree.column("priority", width=85, anchor="w", stretch=False)
@@ -300,13 +312,16 @@ class TaskOverviewMixin:
             variant="secondary",
         ).pack(side=tk.LEFT, padx=(10, 0))
 
-        self.create_button(
-            actions,
-            text="Zavřít",
-            command=dialog.destroy,
-            variant="secondary",
-        ).pack(side=tk.RIGHT)
+        if not embedded:
+            self.create_button(
+                actions,
+                text="Zavřít",
+                command=dialog.destroy,
+                variant="secondary",
+            ).pack(side=tk.RIGHT)
 
+        if embedded:
+            self.task_tab_refresh = refresh
         refresh()
 
 
@@ -445,6 +460,7 @@ class TaskOverviewMixin:
                 tags=(order["tag"],) if order["tag"] else (),
             )
 
+        reapply_treeview_sorting(tree)
         if search_text.strip():
             suffix = " nalezených"
         elif status_filter != "Všechna":
@@ -577,6 +593,7 @@ class TaskOverviewMixin:
                 tags=(tag,) if tag else (),
             )
 
+        reapply_treeview_sorting(tree)
         suffix = " nalezených" if search_text.strip() else " otevřených"
         count_label.config(text=f"{len(tasks)}{suffix} úkolů")
 

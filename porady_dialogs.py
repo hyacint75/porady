@@ -66,6 +66,10 @@ class DialogMixin:
                 self.show_problems_application()
                 return "problems"
 
+            if target == "__QUALITY__":
+                self.show_quality_application()
+                return "quality"
+
             if target.lower().startswith(("http://", "https://")):
                 webbrowser.open(target)
                 return "external"
@@ -128,7 +132,7 @@ class DialogMixin:
         def refresh():
             tree.delete(*tree.get_children())
             for launcher_id, name, target_path, arguments, sort_order, is_active in self.fetch_app_launchers(include_inactive=self.can_edit()):
-                target_display = "Vnitřní aplikace" if target_path in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__") else target_path
+                target_display = "Vnitřní aplikace" if target_path in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__") else target_path
                 tree.insert(
                     "",
                     tk.END,
@@ -153,7 +157,7 @@ class DialogMixin:
             launcher_id = get_selected_id()
             if launcher_id:
                 result = self.open_app_launcher(launcher_id)
-                if result in ("workspace", "requirements", "problems"):
+                if result in ("workspace", "requirements", "problems", "quality"):
                     dialog.destroy()
 
         def add_launcher():
@@ -165,7 +169,7 @@ class DialogMixin:
                 c = self.conn.cursor()
                 c.execute("SELECT target_path FROM app_launchers WHERE id=?", (launcher_id,))
                 row = c.fetchone()
-                if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__"):
+                if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__"):
                     messagebox.showinfo("Rozcestník aplikací", "Tato položka je základní součást rozcestníku.")
                     return
                 self.show_app_launcher_form(launcher_id=launcher_id, parent_dialog=dialog, refresh_callback=refresh)
@@ -179,7 +183,7 @@ class DialogMixin:
             c = self.conn.cursor()
             c.execute("SELECT target_path FROM app_launchers WHERE id=?", (launcher_id,))
             row = c.fetchone()
-            if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__"):
+            if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__"):
                 messagebox.showinfo("Rozcestník aplikací", "Tuto základní položku nelze z rozcestníku odstranit.")
                 return
             if not messagebox.askyesno("Smazat aplikaci", "Opravdu chcete vybranou aplikaci odstranit z rozcestníku?"):

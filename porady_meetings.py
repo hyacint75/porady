@@ -573,6 +573,9 @@ class MeetingMixin:
                     if self.is_item_overdue(due_date, is_resolved):
                         color = self.COLORS["danger"]
                         background = "#fee2e2"
+                    elif self.is_item_due_today(due_date, is_resolved):
+                        color = "#b45309"
+                        background = "#ffedd5"
                     else:
                         color = self.COLORS["muted"] if is_done else self.COLORS["text"]
                         background = self.COLORS["panel_soft"]

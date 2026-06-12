@@ -2,7 +2,7 @@
 
 import tkinter as tk
 from datetime import datetime
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog, ttk
 
 
 class AgendaMixin:
@@ -31,6 +31,14 @@ class AgendaMixin:
             return False
         parsed_due_date = self.parse_due_date(due_date)
         return bool(parsed_due_date and parsed_due_date < datetime.now().date())
+
+
+    def is_item_due_today(self, due_date, is_resolved):
+        if is_resolved == 1 or not due_date:
+            return False
+        parsed_due_date = self.parse_due_date(due_date)
+        return bool(parsed_due_date and parsed_due_date == datetime.now().date())
+
 
     def get_record_status(self, due_date, is_resolved):
         if is_resolved == 1:
@@ -414,11 +422,107 @@ class AgendaMixin:
             return
         old_title = meeting[0]
 
-        new_title = simpledialog.askstring(
-            "Kopírovat poradu",
-            "Název nové porady:",
-            initialvalue=f"{old_title} (Pokračování)",
+        dialog, content = self.create_dialog("Kopírovat poradu", 640, 390, 560, 350, modal=True)
+        self.create_dialog_header(
+            content,
+            "Název kopírované porady",
+            "Vytvoří se nová porada a přenesou se do ní nevyřešené položky.",
+            accent=self.COLORS["page_meeting_accent"],
         )
+
+        source_frame = tk.Frame(
+            content,
+            bg=self.COLORS["panel_soft"],
+            highlightbackground=self.COLORS["border"],
+            highlightthickness=1,
+            padx=14,
+            pady=11,
+        )
+        source_frame.pack(fill=tk.X, pady=(0, 18))
+        tk.Label(
+            source_frame,
+            text="Zdrojová porada",
+            font=(self.FONT, 9, "bold"),
+            bg=self.COLORS["panel_soft"],
+            fg=self.COLORS["muted"],
+            anchor="w",
+        ).pack(fill=tk.X)
+        tk.Label(
+            source_frame,
+            text=old_title,
+            font=(self.FONT, 11, "bold"),
+            bg=self.COLORS["panel_soft"],
+            fg=self.COLORS["text"],
+            anchor="w",
+        ).pack(fill=tk.X, pady=(3, 0))
+
+        title_var = tk.StringVar(value=f"{old_title} (Pokračování)")
+        tk.Label(
+            content,
+            text="Název nové porady",
+            font=(self.FONT, 10, "bold"),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["text"],
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 6))
+        title_entry = ttk.Entry(content, textvariable=title_var, font=(self.FONT, 11))
+        title_entry.pack(fill=tk.X, ipady=5)
+
+        suggestions = tk.Frame(content, bg=self.COLORS["panel"])
+        suggestions.pack(fill=tk.X, pady=(10, 0))
+        tk.Label(
+            suggestions,
+            text="Rychlá volba:",
+            font=(self.FONT, 9),
+            bg=self.COLORS["panel"],
+            fg=self.COLORS["muted"],
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        self.create_button(
+            suggestions,
+            text="Další číslo",
+            command=lambda: title_var.set(self.get_next_meeting_number()),
+            variant="secondary",
+        ).pack(side=tk.LEFT)
+        self.create_button(
+            suggestions,
+            text="Pokračování",
+            command=lambda: title_var.set(f"{old_title} (Pokračování)"),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        result = {"title": None}
+
+        def confirm_copy():
+            title = title_var.get().strip()
+            if not title:
+                messagebox.showwarning("Kopírovat poradu", "Zadejte název nové porady.", parent=dialog)
+                title_entry.focus_set()
+                return
+            result["title"] = title
+            dialog.destroy()
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, side=tk.BOTTOM, pady=(20, 0))
+        self.create_button(
+            actions,
+            text="Vytvořit kopii",
+            command=confirm_copy,
+            variant="primary",
+        ).pack(side=tk.LEFT)
+        self.create_button(
+            actions,
+            text="Zrušit",
+            command=dialog.destroy,
+            variant="secondary",
+        ).pack(side=tk.RIGHT)
+
+        title_entry.bind("<Return>", lambda event: confirm_copy())
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+        title_entry.focus_set()
+        title_entry.selection_range(0, tk.END)
+        dialog.wait_window()
+
+        new_title = result["title"]
         if new_title:
             date_str = datetime.now().strftime("%Y-%m-%d")
             c.execute(
