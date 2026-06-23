@@ -4,6 +4,31 @@ import tkinter as tk
 from datetime import datetime
 
 
+def bind_mousewheel_to_canvas(canvas, *containers):
+    def on_mousewheel(event):
+        if event.num == 4:
+            units = -1
+        elif event.num == 5:
+            units = 1
+        else:
+            units = int(-1 * (event.delta / 120)) if event.delta else 0
+        if units:
+            canvas.yview_scroll(units, "units")
+            return "break"
+        return None
+
+    def bind_widget(widget):
+        widget.bind("<MouseWheel>", on_mousewheel, add="+")
+        widget.bind("<Button-4>", on_mousewheel, add="+")
+        widget.bind("<Button-5>", on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            bind_widget(child)
+
+    bind_widget(canvas)
+    for container in containers:
+        bind_widget(container)
+
+
 def _treeview_sort_value(value, value_type):
     text = str(value or "").strip()
     if not text or text == "-":

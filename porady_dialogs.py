@@ -1,5 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 
+import configparser
 import os
 import shlex
 import shutil
@@ -7,6 +8,7 @@ import sqlite3
 import subprocess
 import tkinter as tk
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -14,6 +16,16 @@ from porady_widgets import RoundedFrame
 
 
 class DialogMixin:
+    INTERNAL_LAUNCHERS = {
+        "__PORADY__",
+        "__REQUIREMENTS__",
+        "__PROBLEMS__",
+        "__QUALITY__",
+        "__CHANGE_MANAGEMENT__",
+        "__JOB_EVALUATION__",
+        "__EXTERNAL_COMPANIES__",
+        "__ENTRY_TRAINING__",
+    }
 
     def open_folder(self, path):
         try:
@@ -70,6 +82,22 @@ class DialogMixin:
                 self.show_quality_application()
                 return "quality"
 
+            if target == "__CHANGE_MANAGEMENT__":
+                self.show_change_management_application()
+                return "change_management"
+
+            if target == "__JOB_EVALUATION__":
+                self.show_job_evaluation_application()
+                return "job_evaluation"
+
+            if target == "__EXTERNAL_COMPANIES__":
+                self.show_external_companies_application()
+                return "external_companies"
+
+            if target == "__ENTRY_TRAINING__":
+                self.show_entry_training_application()
+                return "entry_training"
+
             if target.lower().startswith(("http://", "https://")):
                 webbrowser.open(target)
                 return "external"
@@ -85,26 +113,51 @@ class DialogMixin:
             else:
                 os.startfile(str(resolved_target))
             return "external"
-        except (OSError, ValueError) as error:
+        except (ImportError, OSError, ValueError, tk.TclError) as error:
             messagebox.showerror("Rozcestník aplikací", f"Aplikaci „{name}“ se nepodařilo spustit:\n{error}")
             return None
 
 
+    def _show_integrated_training_application(self, window_attribute, application_class):
+        window = getattr(self, window_attribute, None)
+        if window is not None and window.winfo_exists():
+            window.deiconify()
+            window.lift()
+            window.focus_force()
+            return
+
+        window = application_class(
+            self.root,
+            on_home=self.show_launcher_home,
+            on_data_changed=self.sync_integrated_records,
+        )
+        setattr(self, window_attribute, window)
+
+
+    def show_external_companies_application(self):
+        from integrated_apps.external_companies import TrainingApp
+
+        self._show_integrated_training_application("external_companies_window", TrainingApp)
+
+
+    def show_entry_training_application(self):
+        from integrated_apps.entry_training import TrainingApp
+
+        self._show_integrated_training_application("entry_training_window", TrainingApp)
+
+
     def show_app_launcher_dialog(self):
-        dialog, content = self.create_dialog("Rozcestník aplikací", 900, 560, 760, 450)
-        launcher_home_active = hasattr(self, "left_frame") and not self.left_frame.winfo_ismapped()
+        dialog, content = self.create_dialog("Správa aplikací", 900, 560, 760, 450)
 
         def close_launcher():
-            if launcher_home_active:
-                self.root.destroy()
-            else:
-                dialog.destroy()
+            dialog.destroy()
+            self.show_launcher_home()
 
         dialog.protocol("WM_DELETE_WINDOW", close_launcher)
         self.create_dialog_header(
             content,
-            "Rozcestník aplikací",
-            "Jedno místo pro spuštění dalších nástrojů a aplikací.",
+            "Správa aplikací",
+            "Nastavení aplikací zobrazených jako ikony na hlavní stránce.",
             accent=self.COLORS["primary"],
         )
 
@@ -132,7 +185,7 @@ class DialogMixin:
         def refresh():
             tree.delete(*tree.get_children())
             for launcher_id, name, target_path, arguments, sort_order, is_active in self.fetch_app_launchers(include_inactive=self.can_edit()):
-                target_display = "Vnitřní aplikace" if target_path in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__") else target_path
+                target_display = "Vnitřní aplikace" if target_path in self.INTERNAL_LAUNCHERS else target_path
                 tree.insert(
                     "",
                     tk.END,
@@ -157,7 +210,16 @@ class DialogMixin:
             launcher_id = get_selected_id()
             if launcher_id:
                 result = self.open_app_launcher(launcher_id)
-                if result in ("workspace", "requirements", "problems", "quality"):
+                if result in (
+                    "workspace",
+                    "requirements",
+                    "problems",
+                    "quality",
+                    "change_management",
+                    "job_evaluation",
+                    "external_companies",
+                    "entry_training",
+                ):
                     dialog.destroy()
 
         def add_launcher():
@@ -169,7 +231,7 @@ class DialogMixin:
                 c = self.conn.cursor()
                 c.execute("SELECT target_path FROM app_launchers WHERE id=?", (launcher_id,))
                 row = c.fetchone()
-                if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__"):
+                if row and row[0] in self.INTERNAL_LAUNCHERS:
                     messagebox.showinfo("Rozcestník aplikací", "Tato položka je základní součást rozcestníku.")
                     return
                 self.show_app_launcher_form(launcher_id=launcher_id, parent_dialog=dialog, refresh_callback=refresh)
@@ -183,7 +245,7 @@ class DialogMixin:
             c = self.conn.cursor()
             c.execute("SELECT target_path FROM app_launchers WHERE id=?", (launcher_id,))
             row = c.fetchone()
-            if row and row[0] in ("__PORADY__", "__REQUIREMENTS__", "__PROBLEMS__", "__QUALITY__"):
+            if row and row[0] in self.INTERNAL_LAUNCHERS:
                 messagebox.showinfo("Rozcestník aplikací", "Tuto základní položku nelze z rozcestníku odstranit.")
                 return
             if not messagebox.askyesno("Smazat aplikaci", "Opravdu chcete vybranou aplikaci odstranit z rozcestníku?"):
@@ -403,31 +465,78 @@ class DialogMixin:
 
 
     def choose_shared_database(self):
-        if not self.require_admin():
+        choose_existing = messagebox.askyesnocancel(
+            "Nastavit databázi",
+            "Chcete vybrat existující databázi?\n\n"
+            "Ano = vybrat existující soubor\n"
+            "Ne = vytvořit novou databázi",
+        )
+        if choose_existing is None:
             return
 
-        path = filedialog.asksaveasfilename(
-            title="Vybrat sdílenou databázi",
-            initialfile=self.DB_FILENAME,
-            defaultextension=".db",
-            filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
-        )
+        initial_dir = self.db_path.parent if self.db_path.parent.exists() else self.get_runtime_dir()
+        if choose_existing:
+            path = filedialog.askopenfilename(
+                title="Vybrat existující databázi",
+                initialdir=str(initial_dir),
+                filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
+            )
+        else:
+            path = filedialog.asksaveasfilename(
+                title="Vytvořit novou databázi",
+                initialdir=str(initial_dir),
+                initialfile=self.DB_FILENAME,
+                defaultextension=".db",
+                filetypes=[("SQLite databáze", "*.db"), ("Všechny soubory", "*.*")],
+            )
         if not path:
             return
 
         selected_path = Path(path)
-        if not selected_path.exists() and self.db_path.exists():
-            if messagebox.askyesno(
-                "Sdílená databáze",
-                "Zvolená databáze zatím neexistuje. Chcete do ní zkopírovat aktuální data?",
+        try:
+            selected_path.parent.mkdir(parents=True, exist_ok=True)
+            if not selected_path.exists() and self.db_path.exists() and messagebox.askyesno(
+                "Nová databáze",
+                "Chcete do nové databáze zkopírovat aktuální data?\n\n"
+                "Volbou Ne vznikne prázdná databáze.",
             ):
-                selected_path.parent.mkdir(parents=True, exist_ok=True)
+                self.commit_database()
                 shutil.copy2(self.db_path, selected_path)
 
-        self.write_database_config(selected_path)
+            self.switch_database(selected_path)
+        except (OSError, sqlite3.Error, configparser.Error) as error:
+            messagebox.showerror(
+                "Nastavení databáze",
+                "Databázi se nepodařilo otestovat nebo připojit.\n\n"
+                f"Cesta: {selected_path}\n"
+                f"Chyba: {error}\n\n"
+                "Původní databáze zůstala aktivní.",
+            )
+            return
+
         messagebox.showinfo(
-            "Sdílená databáze",
-            "Cesta ke sdílené databázi byla uložena. Restartujte aplikaci, aby se změna použila.",
+            "Nastavení databáze",
+            f"Databáze byla úspěšně otestována a připojena:\n{selected_path.resolve()}",
+        )
+        settings_dialog = getattr(self, "data_settings_dialog", None)
+        if settings_dialog is not None and settings_dialog.winfo_exists():
+            settings_dialog.destroy()
+            self.data_settings_dialog = None
+
+
+    def test_current_database_connection(self):
+        try:
+            self.test_database_path(self.db_path)
+        except (OSError, sqlite3.Error) as error:
+            messagebox.showerror(
+                "Test databáze",
+                f"Test čtení a zápisu selhal:\n{error}",
+            )
+            return
+
+        messagebox.showinfo(
+            "Test databáze",
+            f"Čtení i zápis fungují správně:\n{self.db_path}",
         )
 
 
@@ -489,8 +598,8 @@ class DialogMixin:
         dialog.geometry(f"{width}x{height}")
         dialog.minsize(min_width or width, min_height or height)
         dialog.configure(bg=self.COLORS["app_bg"])
-        dialog.transient(self.root)
         if modal:
+            dialog.transient(self.root)
             dialog.grab_set()
 
         content_panel = RoundedFrame(
@@ -557,8 +666,396 @@ class DialogMixin:
         return header
 
 
+    def show_admin_dashboard(self):
+        dialog, content = self.create_dialog("Administrace", 980, 700, 840, 600)
+
+        def close_admin():
+            dialog.destroy()
+            self.show_launcher_home()
+
+        dialog.protocol("WM_DELETE_WINDOW", close_admin)
+
+        def render_status(header):
+            status = "Admin aktivní" if self.can_edit() else "Jen pro čtení"
+            color = "#166534" if self.can_edit() else "#92400e"
+            background = "#dcfce7" if self.can_edit() else "#fef3c7"
+            tk.Label(
+                header,
+                text=status,
+                font=(self.FONT, 10, "bold"),
+                bg=background,
+                fg=color,
+                padx=12,
+                pady=7,
+            ).pack(side=tk.RIGHT)
+
+        self.create_dialog_header(
+            content,
+            "Administrace",
+            "Centrální místo pro správu režimu admina, rozcestníku, databáze, záloh a provozních kontrol.",
+            right_widget=render_status,
+            accent=self.COLORS["primary"],
+        )
+
+        info = tk.Frame(content, bg="#f8fafc", padx=14, pady=12, highlightthickness=1, highlightbackground=self.COLORS["border"])
+        info.pack(fill=tk.X, pady=(0, 16))
+        rows = (
+            ("Aktuální režim", "Admin - úpravy povoleny" if self.can_edit() else "Uživatel - jen čtení"),
+            ("Databáze", str(self.db_path)),
+            ("Zálohy", str(self.backup_dir)),
+            ("Konfigurace", str(self.config_path)),
+        )
+        for label, value in rows:
+            line = tk.Frame(info, bg="#f8fafc")
+            line.pack(fill=tk.X, pady=2)
+            tk.Label(line, text=label, width=16, anchor="w", font=(self.FONT, 10, "bold"), bg="#f8fafc", fg="#334155").pack(side=tk.LEFT)
+            tk.Label(line, text=value, anchor="w", font=(self.FONT, 10), bg="#f8fafc", fg=self.COLORS["text"], wraplength=720, justify=tk.LEFT).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        grid = tk.Frame(content, bg=self.COLORS["panel"])
+        grid.pack(fill=tk.BOTH, expand=True)
+        for column in range(2):
+            grid.columnconfigure(column, weight=1, uniform="admin_cards")
+
+        cards = (
+            (
+                "Admin režim",
+                "Přihlášení nebo odhlášení administrátora pro úpravy dat.",
+                "Odhlásit admina" if self.can_edit() else "Přihlásit admina",
+                lambda: (self.toggle_admin_login(), dialog.destroy(), self.show_admin_dashboard()),
+                True,
+            ),
+            (
+                "Správa rozcestníku",
+                "Přidání, úprava, skrytí nebo řazení aplikací v rozcestníku.",
+                "Otevřít správu",
+                self.show_app_launcher_dialog,
+                self.can_edit(),
+            ),
+            (
+                "Uživatelé a role",
+                "Zakládání uživatelů, reset hesel, aktivace účtů a přiřazení rolí.",
+                "Spravovat uživatele",
+                self.show_user_management_dialog,
+                self.can_manage_users(),
+            ),
+            (
+                "Data a zálohy",
+                "Cesty k databázi, ruční záloha, obnova, import a export databáze.",
+                "Otevřít data",
+                self.show_data_settings,
+                True,
+            ),
+            (
+                "Kontrola databáze",
+                "Rychlé ověření čtení a zápisu aktuálně připojené databáze.",
+                "Otestovat",
+                self.test_current_database_connection,
+                True,
+            ),
+            (
+                "Kompletní ZIP záloha",
+                "Uložení databáze, konfigurace a důležitých provozních souborů do archivu.",
+                "Vytvořit ZIP",
+                self.create_complete_backup,
+                self.can_edit(),
+            ),
+            (
+                "Synchronizace školení",
+                "Načtení integrovaných záznamů ze školení do společných přehledů.",
+                "Synchronizovat",
+                self.sync_integrated_records,
+                True,
+            ),
+        )
+        for index, (title, description, button_text, command, enabled) in enumerate(cards):
+            self.create_admin_card(grid, title, description, button_text, command, enabled, index // 2, index % 2)
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(16, 0))
+        self.create_button(actions, text="Zavřít", command=close_admin, variant="secondary").pack(side=tk.RIGHT)
+
+
+    def create_admin_card(self, parent, title, description, button_text, command, enabled, row, column):
+        card = tk.Frame(
+            parent,
+            bg="white",
+            padx=16,
+            pady=14,
+            highlightthickness=1,
+            highlightbackground=self.COLORS["border"],
+        )
+        card.grid(row=row, column=column, sticky="nsew", padx=(0, 12 if column == 0 else 0), pady=(0, 12))
+        tk.Label(
+            card,
+            text=title,
+            font=(self.FONT, 12, "bold"),
+            bg="white",
+            fg=self.COLORS["text"],
+            anchor="w",
+        ).pack(fill=tk.X)
+        tk.Label(
+            card,
+            text=description,
+            font=(self.FONT, 10),
+            bg="white",
+            fg=self.COLORS["muted"],
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=390,
+        ).pack(fill=tk.X, pady=(6, 12))
+        self.create_button(
+            card,
+            text=button_text,
+            command=command,
+            variant="primary" if enabled else "secondary",
+            state=tk.NORMAL if enabled else tk.DISABLED,
+        ).pack(anchor="w")
+
+
+    def fetch_app_users(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT id, username, display_name, role, is_active, created_at, updated_at, last_login
+               FROM app_users
+               ORDER BY lower(username)"""
+        )
+        return cursor.fetchall()
+
+
+    def active_admin_count(self, exclude_user_id=None):
+        cursor = self.conn.cursor()
+        if exclude_user_id is None:
+            cursor.execute("SELECT COUNT(*) FROM app_users WHERE role='admin' AND COALESCE(is_active, 1)=1")
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) FROM app_users WHERE role='admin' AND COALESCE(is_active, 1)=1 AND id<>?",
+                (exclude_user_id,),
+            )
+        return cursor.fetchone()[0]
+
+
+    def show_user_management_dialog(self):
+        if not self.require_user_admin():
+            return
+
+        dialog, content = self.create_dialog("Uživatelé a role", 960, 590, 820, 480)
+        self.create_dialog_header(
+            content,
+            "Uživatelé a role",
+            "Správa přístupů do aplikace. Administrátor spravuje nastavení, editor upravuje data, čtenář pouze prohlíží.",
+            accent="#dc2626",
+        )
+
+        tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        columns = ("username", "display_name", "role", "active", "last_login")
+        tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
+        for key, label, width in (
+            ("username", "Uživatel", 150),
+            ("display_name", "Jméno", 210),
+            ("role", "Role", 130),
+            ("active", "Stav", 90),
+            ("last_login", "Poslední přihlášení", 160),
+        ):
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor="w")
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            for user_id, username, display_name, role, is_active, _created, _updated, last_login in self.fetch_app_users():
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=str(user_id),
+                    values=(
+                        username,
+                        display_name or "",
+                        self.role_display_name(role),
+                        "Aktivní" if is_active else "Neaktivní",
+                        last_login or "",
+                    ),
+                )
+
+        def selected_user_id():
+            selection = tree.selection()
+            if not selection:
+                messagebox.showwarning("Uživatelé a role", "Vyberte uživatele ze seznamu.", parent=dialog)
+                return None
+            return int(selection[0])
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(16, 0))
+        self.create_button(actions, "Nový uživatel", lambda: self.show_user_form(parent_dialog=dialog, refresh_callback=refresh), "primary").pack(side=tk.LEFT)
+        self.create_button(actions, "Upravit", lambda: self.show_user_form(selected_user_id(), dialog, refresh), "secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(actions, "Reset hesla", lambda: self.show_user_password_reset(selected_user_id(), dialog, refresh), "secondary").pack(side=tk.LEFT, padx=(8, 0))
+
+        def toggle_active():
+            user_id = selected_user_id()
+            if not user_id:
+                return
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT username, role, is_active FROM app_users WHERE id=?", (user_id,))
+            row = cursor.fetchone()
+            if not row:
+                refresh()
+                return
+            username, role, is_active = row
+            if is_active and self.normalize_role(role) == "admin" and self.active_admin_count(exclude_user_id=user_id) <= 0:
+                messagebox.showwarning("Uživatelé a role", "Nelze deaktivovat posledního aktivního administrátora.", parent=dialog)
+                return
+            new_state = 0 if is_active else 1
+            self.conn.execute("UPDATE app_users SET is_active=?, updated_at=? WHERE id=?", (new_state, datetime.now().isoformat(timespec="seconds"), user_id))
+            self.commit_database()
+            refresh()
+            messagebox.showinfo("Uživatelé a role", f"Uživatel {username} byl {'aktivován' if new_state else 'deaktivován'}.", parent=dialog)
+
+        self.create_button(actions, "Aktivovat / deaktivovat", toggle_active, "secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(actions, "Zavřít", dialog.destroy, "secondary").pack(side=tk.RIGHT)
+        tree.bind("<Double-1>", lambda _event: self.show_user_form(selected_user_id(), dialog, refresh))
+        refresh()
+
+
+    def show_user_form(self, user_id=None, parent_dialog=None, refresh_callback=None):
+        if not self.require_user_admin():
+            return
+
+        record = None
+        if user_id:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, username, display_name, role, is_active FROM app_users WHERE id=?", (user_id,))
+            record = cursor.fetchone()
+            if not record:
+                messagebox.showwarning("Uživatelé a role", "Vybraný uživatel už neexistuje.", parent=parent_dialog)
+                if refresh_callback:
+                    refresh_callback()
+                return
+
+        dialog, content = self.create_dialog("Uživatel", 560, 460, 500, 400, modal=True)
+        if parent_dialog is not None:
+            dialog.transient(parent_dialog)
+        self.create_dialog_header(
+            content,
+            "Upravit uživatele" if user_id else "Nový uživatel",
+            "Role Administrátor spravuje aplikaci, Editor upravuje data, Čtenář data pouze prohlíží.",
+        )
+
+        username_var = tk.StringVar(value=record[1] if record else "")
+        display_var = tk.StringVar(value=record[2] if record else "")
+        role_values = ("Administrátor", "Editor", "Čtenář")
+        role_to_code = {"Administrátor": "admin", "Editor": "editor", "Čtenář": "reader"}
+        code_to_role = {value: key for key, value in role_to_code.items()}
+        role_var = tk.StringVar(value=code_to_role.get(self.normalize_role(record[3] if record else "reader"), "Čtenář"))
+        active_var = tk.BooleanVar(value=bool(record[4]) if record else True)
+        password_var = tk.StringVar()
+        confirm_var = tk.StringVar()
+
+        form = tk.Frame(content, bg=self.COLORS["panel"])
+        form.pack(fill=tk.X)
+        form.columnconfigure(1, weight=1)
+
+        def row(label, widget, index):
+            tk.Label(form, text=label, bg=self.COLORS["panel"], fg=self.COLORS["text"], font=(self.FONT, 10, "bold")).grid(row=index, column=0, sticky="w", padx=(0, 12), pady=(0, 10))
+            widget.grid(row=index, column=1, sticky="ew", pady=(0, 10), ipady=3)
+
+        row("Uživatel", ttk.Entry(form, textvariable=username_var, font=(self.FONT, 10)), 0)
+        row("Jméno", ttk.Entry(form, textvariable=display_var, font=(self.FONT, 10)), 1)
+        row("Role", ttk.Combobox(form, textvariable=role_var, values=role_values, state="readonly", font=(self.FONT, 10)), 2)
+        row("Heslo" + ("" if not user_id else " (volitelně)"), ttk.Entry(form, textvariable=password_var, show="*", font=(self.FONT, 10)), 3)
+        row("Potvrzení hesla", ttk.Entry(form, textvariable=confirm_var, show="*", font=(self.FONT, 10)), 4)
+        ttk.Checkbutton(form, text="Aktivní účet", variable=active_var).grid(row=5, column=1, sticky="w", pady=(0, 10))
+
+        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions.pack(fill=tk.X, pady=(12, 0))
+
+        def save():
+            username = username_var.get().strip()
+            display_name = display_var.get().strip()
+            role_code = role_to_code.get(role_var.get(), "reader")
+            password = password_var.get()
+            confirm = confirm_var.get()
+            if not username:
+                messagebox.showwarning("Uživatelé a role", "Vyplňte uživatelské jméno.", parent=dialog)
+                return
+            if not user_id and not password:
+                messagebox.showwarning("Uživatelé a role", "Vyplňte heslo nového uživatele.", parent=dialog)
+                return
+            if password or confirm:
+                if password != confirm:
+                    messagebox.showwarning("Uživatelé a role", "Heslo a potvrzení se neshodují.", parent=dialog)
+                    return
+                if len(password) < 6:
+                    messagebox.showwarning("Uživatelé a role", "Heslo musí mít alespoň 6 znaků.", parent=dialog)
+                    return
+            if user_id and self.normalize_role(record[3]) == "admin" and (role_code != "admin" or not active_var.get()) and self.active_admin_count(exclude_user_id=user_id) <= 0:
+                messagebox.showwarning("Uživatelé a role", "Nelze odebrat nebo deaktivovat posledního aktivního administrátora.", parent=dialog)
+                return
+
+            now = datetime.now().isoformat(timespec="seconds")
+            try:
+                if user_id:
+                    if password:
+                        salt, password_hash = self.hash_password(password)
+                        self.conn.execute(
+                            """UPDATE app_users
+                               SET username=?, display_name=?, role=?, password_salt=?, password_hash=?,
+                                   is_active=?, updated_at=?
+                               WHERE id=?""",
+                            (username, display_name, role_code, salt, password_hash, 1 if active_var.get() else 0, now, user_id),
+                        )
+                    else:
+                        self.conn.execute(
+                            """UPDATE app_users
+                               SET username=?, display_name=?, role=?, is_active=?, updated_at=?
+                               WHERE id=?""",
+                            (username, display_name, role_code, 1 if active_var.get() else 0, now, user_id),
+                        )
+                else:
+                    salt, password_hash = self.hash_password(password)
+                    self.conn.execute(
+                        """INSERT INTO app_users
+                           (username, display_name, role, password_salt, password_hash, is_active, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (username, display_name, role_code, salt, password_hash, 1 if active_var.get() else 0, now, now),
+                    )
+                self.commit_database()
+            except sqlite3.IntegrityError:
+                messagebox.showwarning("Uživatelé a role", "Uživatel se stejným jménem už existuje.", parent=dialog)
+                return
+
+            if refresh_callback:
+                refresh_callback()
+            dialog.destroy()
+
+        self.create_button(actions, "Uložit", save, "primary").pack(side=tk.RIGHT)
+        self.create_button(actions, "Zrušit", dialog.destroy, "secondary").pack(side=tk.RIGHT, padx=(0, 8))
+
+
+    def show_user_password_reset(self, user_id, parent_dialog=None, refresh_callback=None):
+        if not user_id or not self.require_user_admin():
+            return
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT username FROM app_users WHERE id=?", (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            messagebox.showwarning("Uživatelé a role", "Vybraný uživatel už neexistuje.", parent=parent_dialog)
+            return
+        self.show_user_form(user_id=user_id, parent_dialog=parent_dialog, refresh_callback=refresh_callback)
+
+
     def show_data_settings(self):
-        dialog, content = self.create_dialog("Data a zálohy", 860, 430, 720, 350)
+        dialog, content = self.create_dialog("Data a zálohy", 980, 500, 820, 420)
+        self.data_settings_dialog = dialog
+        dialog.protocol(
+            "WM_DELETE_WINDOW",
+            lambda: (setattr(self, "data_settings_dialog", None), dialog.destroy()),
+        )
         self.create_dialog_header(
             content,
             "Data a zálohy",
@@ -585,7 +1082,7 @@ class DialogMixin:
             text="Nastavit sdílenou DB",
             command=self.choose_shared_database,
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+            state=tk.NORMAL,
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         self.create_button(
@@ -610,6 +1107,36 @@ class DialogMixin:
             command=self.import_database_copy,
             variant="secondary",
             state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        second_actions = tk.Frame(content, bg=self.COLORS["panel"])
+        second_actions.pack(fill=tk.X, pady=(12, 0))
+        self.create_button(
+            second_actions,
+            text="Otestovat připojení",
+            command=self.test_current_database_connection,
+            variant="secondary",
+            state=tk.NORMAL,
+        ).pack(side=tk.LEFT)
+        self.create_button(
+            second_actions,
+            text="Kompletní ZIP záloha",
+            command=self.create_complete_backup,
+            variant="primary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            second_actions,
+            text="Import starých aplikací",
+            command=self.import_legacy_applications,
+            variant="secondary",
+            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            second_actions,
+            text="Synchronizovat školení",
+            command=self.sync_integrated_records,
+            variant="secondary",
         ).pack(side=tk.LEFT, padx=(10, 0))
 
         self.create_button(
@@ -648,7 +1175,7 @@ class DialogMixin:
             ),
             (
                 "Data a zálohy",
-                "Aplikace používá lokální nebo sdílenou SQLite databázi a umí vytvářet zálohy před vybranými zásahy.",
+                "Aplikace používá společnou SQLite databázi, centrální registr školení a kompletní ZIP zálohy.",
             ),
         )
 
@@ -693,6 +1220,18 @@ class DialogMixin:
             command=dialog.destroy,
             variant="primary",
         ).pack(side=tk.RIGHT)
+        self.create_button(
+            actions,
+            text="Historie verzí",
+            command=self.show_release_history,
+            variant="secondary",
+        ).pack(side=tk.LEFT)
+        self.create_button(
+            actions,
+            text="Aktualizace",
+            command=self.check_for_updates,
+            variant="primary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
 
 
     def create_path_row(self, parent, label, path, open_command):

@@ -499,6 +499,9 @@ th{{background:#f8fafc}} .overdue{{color:#dc2626;font-weight:700}} .today{{color
 
 
     def show_global_search(self):
+        return self.show_suite_global_search()
+
+    def show_legacy_global_search(self):
         dialog, content = self.create_dialog("Globální hledání", 1180, 680, 900, 500)
         self.create_dialog_header(content, "Globální hledání", "Vyhledávání přes porady, zápisy, úkoly, nařízení, požadavky a všeobecné informace.", accent=self.COLORS["primary"])
         search_var = tk.StringVar()

@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 
 import html
+import mimetypes
 import os
+import tempfile
 import tkinter as tk
+from collections import Counter
 from datetime import datetime, timedelta
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from porady_widgets import configure_treeview_sorting, reapply_treeview_sorting
@@ -51,7 +55,14 @@ class ProblemMixin:
         )
         count_label = count_label_holder["label"]
 
-        filters = tk.Frame(content, bg=self.COLORS["panel"])
+        notebook = ttk.Notebook(content)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        problems_tab = tk.Frame(notebook, bg=self.COLORS["panel"], padx=4, pady=10)
+        actions_tab = tk.Frame(notebook, bg=self.COLORS["panel"], padx=4, pady=10)
+        notebook.add(problems_tab, text="Problémy")
+        notebook.add(actions_tab, text="Přehled opatření")
+
+        filters = tk.Frame(problems_tab, bg=self.COLORS["panel"])
         filters.pack(fill=tk.X, pady=(0, 12))
 
         tk.Label(filters, text="Odpovědnost", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).pack(side=tk.LEFT, padx=(0, 8))
@@ -88,11 +99,11 @@ class ProblemMixin:
         search_entry = ttk.Entry(filters, textvariable=search_var, font=(self.FONT, 10), width=30)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        quick_filters = tk.Frame(content, bg=self.COLORS["panel"])
+        quick_filters = tk.Frame(problems_tab, bg=self.COLORS["panel"])
         quick_filters.pack(fill=tk.X, pady=(0, 12))
 
         columns = ("created_at", "status", "priority", "due_date", "owner", "meeting", "requirement", "problem", "action")
-        tree_frame = tk.Frame(content, bg=self.COLORS["panel"])
+        tree_frame = tk.Frame(problems_tab, bg=self.COLORS["panel"])
         tree_frame.pack(fill=tk.BOTH, expand=True)
 
         tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
@@ -125,11 +136,11 @@ class ProblemMixin:
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        actions = tk.Frame(content, bg=self.COLORS["panel"])
+        actions = tk.Frame(problems_tab, bg=self.COLORS["panel"])
         actions.pack(fill=tk.X, pady=(14, 0))
         edit_buttons = []
 
-        refresh = lambda: self.populate_problem_overview(
+        problem_refresh = lambda: self.populate_problem_overview(
             tree,
             owner_var.get(),
             status_var.get(),
@@ -137,12 +148,94 @@ class ProblemMixin:
             search_var.get(),
             count_label,
         )
+
+        action_summary = tk.Frame(actions_tab, bg=self.COLORS["panel"])
+        action_summary.pack(fill=tk.X, pady=(0, 12))
+        action_summary_labels = {}
+        for column, (key, title, color) in enumerate(
+            (
+                ("all", "Celkem opatření", self.COLORS["page_problems_accent"]),
+                ("open", "Otevřená", self.COLORS["warning"]),
+                ("overdue", "Po termínu", self.COLORS["danger"]),
+                ("closed", "Uzavřená", self.COLORS["success"]),
+            )
+        ):
+            action_summary.columnconfigure(column, weight=1, uniform="action_summary")
+            card = tk.Frame(
+                action_summary,
+                bg=self.COLORS["panel_soft"],
+                padx=14,
+                pady=10,
+                highlightthickness=1,
+                highlightbackground=self.COLORS["border"],
+            )
+            card.grid(row=0, column=column, sticky="ew", padx=(0, 8 if column < 3 else 0))
+            tk.Label(card, text=title, font=(self.FONT, 9, "bold"), bg=self.COLORS["panel_soft"], fg=self.COLORS["muted"]).pack(anchor="w")
+            label = tk.Label(card, text="0", font=(self.FONT, 20, "bold"), bg=self.COLORS["panel_soft"], fg=color)
+            label.pack(anchor="w", pady=(4, 0))
+            action_summary_labels[key] = label
+
+        action_filters = tk.Frame(actions_tab, bg=self.COLORS["panel"])
+        action_filters.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(action_filters, text="Stav", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).pack(side=tk.LEFT, padx=(0, 8))
+        action_status_var = tk.StringVar(value="Všechny")
+        action_status_filter = ttk.Combobox(
+            action_filters,
+            textvariable=action_status_var,
+            state="readonly",
+            width=20,
+            values=["Všechny", "Otevřené", "Po termínu", "Dnes"] + list(self.PROBLEM_STATUS_VALUES),
+        )
+        action_status_filter.pack(side=tk.LEFT, padx=(0, 16), ipady=3)
+        tk.Label(action_filters, text="Hledat", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).pack(side=tk.LEFT, padx=(0, 8))
+        action_search_var = tk.StringVar()
+        action_search_entry = ttk.Entry(action_filters, textvariable=action_search_var, font=(self.FONT, 10))
+        action_search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+
+        action_columns = ("status", "priority", "due_date", "owner", "action", "problem", "meeting")
+        action_tree_frame = tk.Frame(actions_tab, bg=self.COLORS["panel"])
+        action_tree_frame.pack(fill=tk.BOTH, expand=True)
+        action_tree = ttk.Treeview(action_tree_frame, columns=action_columns, show="headings", selectmode="browse")
+        for key, title, width in (
+            ("status", "Stav", 135),
+            ("priority", "Priorita", 90),
+            ("due_date", "Termín", 100),
+            ("owner", "Odpovědnost", 145),
+            ("action", "Nápravné opatření", 360),
+            ("problem", "Související problém", 260),
+            ("meeting", "Porada", 180),
+        ):
+            action_tree.heading(key, text=title)
+            action_tree.column(key, width=width, anchor="center" if key in ("priority", "due_date") else "w")
+        configure_treeview_sorting(action_tree, column_types={"due_date": "date"})
+        self.configure_status_tags(action_tree)
+        action_scrollbar = ttk.Scrollbar(action_tree_frame, orient=tk.VERTICAL, command=action_tree.yview)
+        action_tree.configure(yscrollcommand=action_scrollbar.set)
+        action_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        action_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def action_refresh():
+            self.populate_corrective_action_overview(
+                action_tree,
+                action_status_var.get(),
+                action_search_var.get(),
+                action_summary_labels,
+            )
+
+        def refresh():
+            problem_refresh()
+            action_refresh()
+
         owner_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
         status_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
         source_filter.bind("<<ComboboxSelected>>", lambda event: refresh())
         search_entry.bind("<KeyRelease>", lambda event: refresh())
         tree.bind("<Double-1>", lambda event: self.open_selected_problem_dialog(tree, refresh))
         tree.bind("<Return>", lambda event: self.open_selected_problem_dialog(tree, refresh))
+        action_status_filter.bind("<<ComboboxSelected>>", lambda event: action_refresh())
+        action_search_entry.bind("<KeyRelease>", lambda event: action_refresh())
+        action_tree.bind("<Double-1>", lambda event: self.open_selected_problem_dialog(action_tree, refresh))
+        action_tree.bind("<Return>", lambda event: self.open_selected_problem_dialog(action_tree, refresh))
 
         def set_my_problems():
             owner = self.get_my_owner_value()
@@ -169,7 +262,6 @@ class ProblemMixin:
             text="Nový problém",
             command=lambda: self.show_problem_dialog(refresh_callback=refresh),
             variant="primary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT)
         edit_buttons.append(button)
@@ -178,7 +270,6 @@ class ProblemMixin:
             text="Upravit vybrané",
             command=lambda: self.open_selected_problem_dialog(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -187,7 +278,6 @@ class ProblemMixin:
             text="Smazat vybrané",
             command=lambda: self.delete_selected_problem(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -196,7 +286,6 @@ class ProblemMixin:
             text="Otevřít požadavek",
             command=lambda: self.open_selected_problem_requirement(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -219,28 +308,95 @@ class ProblemMixin:
         ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Obnovit", command=refresh, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
 
+        action_buttons = tk.Frame(actions_tab, bg=self.COLORS["panel"])
+        action_buttons.pack(fill=tk.X, pady=(14, 0))
+        self.create_button(
+            action_buttons,
+            text="Upravit vybrané",
+            command=lambda: self.open_selected_problem_dialog(action_tree, refresh),
+            variant="primary",
+        ).pack(side=tk.LEFT)
+        self.create_button(
+            action_buttons,
+            text="Export opatření",
+            command=lambda: self.export_problem_overview(
+                status_filter=action_status_var.get(),
+                search_text=action_search_var.get(),
+            ),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            action_buttons,
+            text="Přílohy",
+            command=lambda: self.open_selected_problem_attachments(action_tree),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            action_buttons,
+            text="Historie",
+            command=lambda: self.open_selected_problem_history(action_tree),
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(
+            action_buttons,
+            text="Grafy",
+            command=self.show_corrective_action_charts,
+            variant="secondary",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        self.create_button(action_buttons, text="Obnovit", command=action_refresh, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
         if standalone:
-            self.create_button(actions, text="Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
+            self.create_button(action_buttons, text="← Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
+        elif not embedded:
+            self.create_button(action_buttons, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+
+        if standalone:
+            self.create_button(actions, text="← Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
         elif not embedded:
             self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
-
-        if not embedded:
-            def toggle_admin_from_problems():
-                self.toggle_admin_login()
-                dialog.destroy()
-                self.show_problem_overview(standalone=standalone, close_callback=close_callback)
-
-            self.create_button(
-                actions,
-                text="Odhlásit admina" if self.can_edit() else "Admin",
-                command=toggle_admin_from_problems,
-                variant="secondary",
-            ).pack(side=tk.RIGHT, padx=(0, 10))
 
         if embedded:
             self.problem_tab_refresh = refresh
             self.problem_tab_edit_buttons = edit_buttons
         refresh()
+
+    def populate_corrective_action_overview(self, tree, status_filter, search_text, summary_labels):
+        all_items = self.fetch_problems()
+        today = datetime.now().date()
+        open_count = 0
+        overdue_count = 0
+        closed_count = 0
+        for item in all_items:
+            if item["status"] == "Uzavřeno":
+                closed_count += 1
+            else:
+                open_count += 1
+                if item["parsed_due"] and item["parsed_due"] < today:
+                    overdue_count += 1
+
+        summary_labels["all"].config(text=str(len(all_items)))
+        summary_labels["open"].config(text=str(open_count))
+        summary_labels["overdue"].config(text=str(overdue_count))
+        summary_labels["closed"].config(text=str(closed_count))
+
+        items = self.fetch_problems(status_filter=status_filter, search_text=search_text)
+        tree.delete(*tree.get_children())
+        for item in items:
+            tree.insert(
+                "",
+                tk.END,
+                iid=str(item["id"]),
+                values=(
+                    item["status_text"],
+                    item["priority"],
+                    item["due_date"] or "-",
+                    item["owner"] or "-",
+                    item["action"],
+                    item["title"],
+                    item["meeting_title"] or "-",
+                ),
+                tags=(item["tag"],) if item["tag"] else (),
+            )
+        reapply_treeview_sorting(tree)
 
     def fetch_problems(self, owner=None, status_filter="Všechny", source_filter="Vše", search_text=""):
         c = self.conn.cursor()
@@ -252,9 +408,12 @@ class ProblemMixin:
                       COALESCE(corrective_actions.priority, 'Normální'),
                       corrective_actions.created_at, corrective_actions.completed_at,
                       corrective_actions.source_requirement_id,
-                      meetings.title, meetings.date
+                      corrective_actions.quality_evaluation_id,
+                      meetings.title, meetings.date,
+                      quality_evaluations.period
                FROM corrective_actions
-               LEFT JOIN meetings ON meetings.id = corrective_actions.meeting_id"""
+               LEFT JOIN meetings ON meetings.id = corrective_actions.meeting_id
+               LEFT JOIN quality_evaluations ON quality_evaluations.id = corrective_actions.quality_evaluation_id"""
         )
         today = datetime.now().date()
         search_text = (search_text or "").strip().lower()
@@ -274,8 +433,10 @@ class ProblemMixin:
                 created_at,
                 completed_at,
                 source_requirement_id,
+                quality_evaluation_id,
                 meeting_title,
                 meeting_date,
+                quality_period,
             ) = row
             status = status or "Nový"
             is_closed = status == "Uzavřeno"
@@ -313,6 +474,7 @@ class ProblemMixin:
                     formatted_meeting_date,
                     str(source_requirement_id or ""),
                     source_requirement_text,
+                    quality_period or "",
                 )
             ).lower()
             if search_text and search_text not in haystack:
@@ -346,6 +508,8 @@ class ProblemMixin:
                     "created_at": created_at or "",
                     "completed_at": completed_at or "",
                     "source_requirement_id": source_requirement_id,
+                    "quality_evaluation_id": quality_evaluation_id,
+                    "quality_period": quality_period or "",
                     "meeting_title": meeting_title or "",
                     "meeting_date": meeting_date or "",
                     "formatted_meeting_date": formatted_meeting_date,
@@ -489,7 +653,8 @@ class ProblemMixin:
         c = self.conn.cursor()
         c.execute(
             """SELECT id, meeting_id, problem_title, problem_description, root_cause,
-                      corrective_action, owner, due_date, status, priority, source_requirement_id
+                      corrective_action, owner, due_date, status, priority, source_requirement_id,
+                      quality_evaluation_id
                FROM corrective_actions
                WHERE id=?""",
             (problem_id,),
@@ -497,11 +662,10 @@ class ProblemMixin:
         return c.fetchone()
 
     def show_problem_dialog(self, problem_id=None, refresh_callback=None, initial_values=None, after_save_callback=None):
-        if not self.require_admin():
-            return
-
         initial_values = initial_values or {}
         choices, meeting_mapping = self.get_meeting_choices()
+        requirement_mapping = self.get_problem_requirement_choices()
+        quality_mapping = self.get_problem_quality_choices()
         existing = self.fetch_problem_detail(problem_id) if problem_id else None
         if problem_id and not existing:
             messagebox.showwarning("Problémy", "Vybraný problém už neexistuje.")
@@ -510,7 +674,7 @@ class ProblemMixin:
             return
 
         title = "Upravit problém" if existing else "Nový problém"
-        dialog, content = self.create_dialog(title, 820, 650, 700, 540, modal=True)
+        dialog, content = self.create_dialog(title, 900, 720, 760, 600, modal=True)
         self.create_dialog_header(
             content,
             title,
@@ -518,6 +682,7 @@ class ProblemMixin:
             accent=self.COLORS["page_problems_accent"],
         )
         source_requirement_id = existing[10] if existing else initial_values.get("source_requirement_id")
+        quality_evaluation_id = existing[11] if existing else initial_values.get("quality_evaluation_id")
         if source_requirement_id:
             tk.Label(
                 content,
@@ -538,6 +703,8 @@ class ProblemMixin:
         form.rowconfigure(4, weight=1)
 
         meeting_var = tk.StringVar()
+        requirement_var = tk.StringVar()
+        quality_var = tk.StringVar()
         title_var = tk.StringVar()
         owner_var = tk.StringVar()
         due_date_var = tk.StringVar(value=self.get_today_due_date())
@@ -549,11 +716,19 @@ class ProblemMixin:
         action = ""
         original_status = ""
         if existing:
-            _, meeting_id, problem_title, description, root_cause, action, owner, due_date, status, priority, source_requirement_id = existing
+            _, meeting_id, problem_title, description, root_cause, action, owner, due_date, status, priority, source_requirement_id, quality_evaluation_id = existing
             original_status = status or "Nový"
             for label, mapped_id in meeting_mapping.items():
                 if mapped_id == meeting_id:
                     meeting_var.set(label)
+                    break
+            for label, mapped_id in requirement_mapping.items():
+                if mapped_id == source_requirement_id:
+                    requirement_var.set(label)
+                    break
+            for label, mapped_id in quality_mapping.items():
+                if mapped_id == quality_evaluation_id:
+                    quality_var.set(label)
                     break
             title_var.set(problem_title or "")
             owner_var.set(owner or "")
@@ -575,10 +750,39 @@ class ProblemMixin:
             description = initial_values.get("problem_description", "")
             root_cause = initial_values.get("root_cause", "")
             action = initial_values.get("corrective_action", "")
+            for label, mapped_id in requirement_mapping.items():
+                if mapped_id == source_requirement_id:
+                    requirement_var.set(label)
+                    break
+            for label, mapped_id in quality_mapping.items():
+                if mapped_id == quality_evaluation_id:
+                    quality_var.set(label)
+                    break
 
-        tk.Label(form, text="Porada", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).grid(row=0, column=0, sticky="w", pady=(0, 10), padx=(0, 12))
-        meeting_entry = ttk.Combobox(form, textvariable=meeting_var, values=[""] + choices, state="readonly", font=(self.FONT, 10))
-        meeting_entry.grid(row=0, column=1, sticky="ew", pady=(0, 10), ipady=3)
+        tk.Label(form, text="Vazby", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).grid(row=0, column=0, sticky="nw", pady=(0, 10), padx=(0, 12))
+        links = tk.Frame(form, bg=self.COLORS["panel"])
+        links.grid(row=0, column=1, sticky="ew", pady=(0, 10))
+        for column in range(3):
+            links.columnconfigure(column, weight=1)
+        tk.Label(links, text="Porada", bg=self.COLORS["panel"], fg=self.COLORS["muted"]).grid(row=0, column=0, sticky="w")
+        tk.Label(links, text="Požadavek", bg=self.COLORS["panel"], fg=self.COLORS["muted"]).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        tk.Label(links, text="Vyhodnocení kvality", bg=self.COLORS["panel"], fg=self.COLORS["muted"]).grid(row=0, column=2, sticky="w", padx=(8, 0))
+        meeting_entry = ttk.Combobox(links, textvariable=meeting_var, values=[""] + choices, state="readonly", font=(self.FONT, 10))
+        meeting_entry.grid(row=1, column=0, sticky="ew", ipady=3)
+        ttk.Combobox(
+            links,
+            textvariable=requirement_var,
+            values=[""] + list(requirement_mapping),
+            state="readonly",
+            font=(self.FONT, 10),
+        ).grid(row=1, column=1, sticky="ew", padx=(8, 0), ipady=3)
+        ttk.Combobox(
+            links,
+            textvariable=quality_var,
+            values=[""] + list(quality_mapping),
+            state="readonly",
+            font=(self.FONT, 10),
+        ).grid(row=1, column=2, sticky="ew", padx=(8, 0), ipady=3)
 
         tk.Label(form, text="Problém", font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["text"]).grid(row=1, column=0, sticky="w", pady=(0, 10), padx=(0, 12))
         title_entry = ttk.Entry(form, textvariable=title_var, font=(self.FONT, 10))
@@ -618,6 +822,8 @@ class ProblemMixin:
             due_date_value = due_date_var.get().strip()
             parsed_due = self.parse_due_date(due_date_value)
             meeting_id = meeting_mapping.get(meeting_var.get()) if meeting_var.get() else None
+            selected_requirement_id = requirement_mapping.get(requirement_var.get()) if requirement_var.get() else None
+            selected_quality_id = quality_mapping.get(quality_var.get()) if quality_var.get() else None
 
             if not problem_title:
                 messagebox.showwarning("Problémy", "Zadejte název problému.")
@@ -641,7 +847,8 @@ class ProblemMixin:
                 c.execute(
                     """UPDATE corrective_actions
                        SET meeting_id=?, problem_title=?, problem_description=?, root_cause=?,
-                           corrective_action=?, owner=?, due_date=?, status=?, priority=?, completed_at=?
+                           corrective_action=?, owner=?, due_date=?, status=?, priority=?, completed_at=?,
+                           source_requirement_id=?, quality_evaluation_id=?
                        WHERE id=?""",
                     (
                         meeting_id,
@@ -654,6 +861,8 @@ class ProblemMixin:
                         status_var.get(),
                         priority_var.get(),
                         completed_at,
+                        selected_requirement_id,
+                        selected_quality_id,
                         problem_id,
                     ),
                 )
@@ -667,8 +876,9 @@ class ProblemMixin:
                 c.execute(
                     """INSERT INTO corrective_actions
                        (meeting_id, problem_title, problem_description, root_cause, corrective_action,
-                        owner, due_date, status, priority, created_at, completed_at, source_requirement_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        owner, due_date, status, priority, created_at, completed_at, source_requirement_id,
+                        quality_evaluation_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         meeting_id,
                         problem_title,
@@ -681,20 +891,30 @@ class ProblemMixin:
                         priority_var.get(),
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         completed_at,
-                        initial_values.get("source_requirement_id"),
+                        selected_requirement_id,
+                        selected_quality_id,
                     ),
                 )
                 saved_problem_id = c.lastrowid
                 self.log_change("problém", saved_problem_id, meeting_id, "vytvořeno", "", problem_title)
-                if initial_values.get("source_requirement_id"):
+                if selected_requirement_id:
                     self.log_change(
                         "problém",
                         saved_problem_id,
                         meeting_id,
                         "problém vytvořen z požadavku",
                         "",
-                        str(initial_values.get("source_requirement_id")),
+                        str(selected_requirement_id),
                     )
+            c.execute(
+                "UPDATE meeting_requirements SET linked_problem_id=NULL WHERE linked_problem_id=? AND id IS NOT ?",
+                (saved_problem_id, selected_requirement_id),
+            )
+            if selected_requirement_id:
+                c.execute(
+                    "UPDATE meeting_requirements SET linked_problem_id=? WHERE id=?",
+                    (saved_problem_id, selected_requirement_id),
+                )
             self.commit_database()
             dialog.destroy()
             if after_save_callback:
@@ -708,6 +928,26 @@ class ProblemMixin:
                 actions,
                 text="Otevřít zdrojový požadavek",
                 command=lambda: self.show_requirement_dialog(requirement_id=source_requirement_id, refresh_callback=refresh_callback),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
+        if quality_evaluation_id:
+            self.create_button(
+                actions,
+                text="Otevřít kvalitu",
+                command=lambda: self.open_quality_evaluation(quality_evaluation_id),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
+        if problem_id:
+            self.create_button(
+                actions,
+                text="Přílohy",
+                command=lambda: self.show_problem_attachments(problem_id),
+                variant="secondary",
+            ).pack(side=tk.LEFT, padx=(10, 0))
+            self.create_button(
+                actions,
+                text="Historie",
+                command=lambda: self.show_history_dialog(record_type="problém", record_id=problem_id),
                 variant="secondary",
             ).pack(side=tk.LEFT, padx=(10, 0))
         self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
@@ -734,9 +974,182 @@ class ProblemMixin:
             return
         self.show_problem_dialog(problem_id=int(selection[0]), refresh_callback=refresh_callback)
 
-    def delete_selected_problem(self, tree, refresh_callback=None):
-        if not self.require_admin():
+    def get_problem_requirement_choices(self):
+        c = self.conn.cursor()
+        c.execute(
+            """SELECT meeting_requirements.id, meeting_requirements.description, meetings.title
+               FROM meeting_requirements
+               LEFT JOIN meetings ON meetings.id=meeting_requirements.meeting_id
+               ORDER BY meeting_requirements.id DESC"""
+        )
+        return {
+            f"#{record_id} | {(description or '')[:55]} | {meeting_title or '-'}": record_id
+            for record_id, description, meeting_title in c.fetchall()
+        }
+
+    def get_problem_quality_choices(self):
+        c = self.conn.cursor()
+        c.execute("SELECT id, period, title FROM quality_evaluations ORDER BY id DESC")
+        return {
+            f"{period} | {title}": record_id
+            for record_id, period, title in c.fetchall()
+        }
+
+    def open_quality_evaluation(self, evaluation_id):
+        self._open_global_search_result(
+            {
+                "source": "Vyhodnocení kvality",
+                "record_type": "vyhodnocení",
+                "record_id": evaluation_id,
+            }
+        )
+
+    def open_selected_problem_attachments(self, tree):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Přílohy", "Nejprve vyberte nápravné opatření.")
             return
+        self.show_problem_attachments(int(selection[0]))
+
+    def open_selected_problem_history(self, tree):
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("Historie", "Nejprve vyberte nápravné opatření.")
+            return
+        self.show_history_dialog(record_type="problém", record_id=int(selection[0]))
+
+    def show_problem_attachments(self, problem_id):
+        dialog, content = self.create_dialog("Přílohy nápravného opatření", 760, 480, 620, 380, modal=True)
+        self.create_dialog_header(
+            content,
+            "Přílohy a fotografie",
+            "Dokumenty jsou uložené přímo v databázi společně s nápravným opatřením.",
+            accent=self.COLORS["page_problems_accent"],
+        )
+        tree = ttk.Treeview(content, columns=("name", "type", "created"), show="headings", selectmode="browse")
+        for key, title, width in (("name", "Soubor", 360), ("type", "Typ", 150), ("created", "Vloženo", 150)):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="w")
+        tree.pack(fill=tk.BOTH, expand=True)
+
+        def refresh():
+            tree.delete(*tree.get_children())
+            rows = self.conn.execute(
+                """SELECT id, file_name, mime_type, created_at
+                   FROM corrective_action_attachments
+                   WHERE corrective_action_id=? ORDER BY id DESC""",
+                (problem_id,),
+            ).fetchall()
+            for attachment_id, file_name, mime_type, created_at in rows:
+                tree.insert("", tk.END, iid=str(attachment_id), values=(file_name, mime_type or "-", created_at))
+
+        def add_files():
+            paths = filedialog.askopenfilenames(parent=dialog, title="Vyberte přílohy nebo fotografie")
+            if not paths:
+                return
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for raw_path in paths:
+                path = Path(raw_path)
+                try:
+                    payload = path.read_bytes()
+                except OSError as error:
+                    messagebox.showwarning("Přílohy", f"Soubor {path.name} nelze načíst:\n{error}", parent=dialog)
+                    continue
+                self.conn.execute(
+                    """INSERT INTO corrective_action_attachments
+                       (corrective_action_id, file_name, mime_type, file_data, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (problem_id, path.name, mimetypes.guess_type(path.name)[0] or "", payload, now),
+                )
+                self.log_change("problém", problem_id, None, "přidána příloha", "", path.name)
+            self.commit_database()
+            refresh()
+
+        def open_file():
+            selection = tree.selection()
+            if not selection:
+                messagebox.showwarning("Přílohy", "Nejprve vyberte soubor.", parent=dialog)
+                return
+            row = self.conn.execute(
+                "SELECT file_name, file_data FROM corrective_action_attachments WHERE id=?",
+                (int(selection[0]),),
+            ).fetchone()
+            if not row:
+                refresh()
+                return
+            output_dir = Path(tempfile.gettempdir()) / "Porady" / "prilohy_opatreni"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output = output_dir / row[0]
+            output.write_bytes(row[1])
+            os.startfile(output)
+
+        def delete_file():
+            selection = tree.selection()
+            if not selection or not messagebox.askyesno("Přílohy", "Odstranit vybranou přílohu?", parent=dialog):
+                return
+            file_name = tree.item(selection[0], "values")[0]
+            self.conn.execute("DELETE FROM corrective_action_attachments WHERE id=?", (int(selection[0]),))
+            self.log_change("problém", problem_id, None, "odstraněna příloha", file_name, "")
+            self.commit_database()
+            refresh()
+
+        buttons = tk.Frame(content, bg=self.COLORS["panel"])
+        buttons.pack(fill=tk.X, pady=(12, 0))
+        self.create_button(buttons, text="Přidat", command=add_files, variant="primary").pack(side=tk.LEFT)
+        self.create_button(buttons, text="Otevřít", command=open_file, variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(buttons, text="Odstranit", command=delete_file, variant="secondary").pack(side=tk.LEFT, padx=(8, 0))
+        self.create_button(buttons, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
+        tree.bind("<Double-1>", lambda _event: open_file())
+        refresh()
+
+    def show_corrective_action_charts(self):
+        rows = self.fetch_problems()
+        dialog, content = self.create_dialog("Grafy nápravných opatření", 980, 650, 780, 500)
+        self.create_dialog_header(
+            content,
+            "Vývoj nápravných opatření",
+            "Počty podle odpovědnosti a měsíce vytvoření.",
+            accent=self.COLORS["page_problems_accent"],
+        )
+        notebook = ttk.Notebook(content)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        def add_chart(title, values, color):
+            frame = tk.Frame(notebook, bg=self.COLORS["panel"])
+            notebook.add(frame, text=title)
+            canvas = tk.Canvas(frame, bg="white", highlightthickness=0)
+            canvas.pack(fill=tk.BOTH, expand=True)
+
+            def draw(_event=None):
+                canvas.delete("all")
+                width = max(canvas.winfo_width(), 700)
+                height = max(canvas.winfo_height(), 380)
+                items = list(values.most_common(12))
+                if not items:
+                    canvas.create_text(width / 2, height / 2, text="Zatím nejsou žádná data.", fill=self.COLORS["muted"])
+                    return
+                maximum = max(value for _label, value in items)
+                left, top, bottom = 190, 28, 30
+                row_height = max(26, (height - top - bottom) / len(items))
+                for index, (label, value) in enumerate(items):
+                    y = top + index * row_height
+                    bar_width = (width - left - 70) * value / maximum
+                    canvas.create_text(left - 10, y + row_height / 2, text=label[:28], anchor="e", fill=self.COLORS["text"])
+                    canvas.create_rectangle(left, y + 5, left + bar_width, y + row_height - 5, fill=color, outline="")
+                    canvas.create_text(left + bar_width + 8, y + row_height / 2, text=str(value), anchor="w", fill=self.COLORS["text"])
+
+            canvas.bind("<Configure>", draw)
+            dialog.after_idle(draw)
+
+        owner_counts = Counter(item["owner"] or "Bez odpovědnosti" for item in rows)
+        month_counts = Counter(
+            item["created_at"][:7] if item["created_at"] else "Bez data"
+            for item in rows
+        )
+        add_chart("Podle odpovědnosti", owner_counts, self.COLORS["page_problems_accent"])
+        add_chart("Podle měsíců", month_counts, self.COLORS["primary"])
+
+    def delete_selected_problem(self, tree, refresh_callback=None):
         selection = tree.selection()
         if not selection:
             messagebox.showwarning("Problémy", "Nejprve vyberte problém.")

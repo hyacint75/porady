@@ -52,6 +52,14 @@ class SchemaMixin:
                      (id INTEGER PRIMARY KEY, name TEXT UNIQUE, normalized_name TEXT, is_active INTEGER DEFAULT 1)"""
         )
         c.execute(
+            """CREATE TABLE IF NOT EXISTS app_users
+                     (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+                      display_name TEXT, role TEXT NOT NULL DEFAULT 'reader',
+                      password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+                      is_active INTEGER DEFAULT 1, created_at TEXT NOT NULL,
+                      updated_at TEXT NOT NULL, last_login TEXT)"""
+        )
+        c.execute(
             """CREATE TABLE IF NOT EXISTS item_comments
                      (id INTEGER PRIMARY KEY, record_type TEXT, record_id INTEGER, meeting_id INTEGER,
                       comment_text TEXT, created_at TEXT, created_by TEXT)"""
@@ -67,7 +75,72 @@ class SchemaMixin:
                       problem_description TEXT, root_cause TEXT, corrective_action TEXT NOT NULL,
                       owner TEXT, due_date TEXT, status TEXT DEFAULT 'Nový',
                       priority TEXT DEFAULT 'Normální', created_at TEXT, completed_at TEXT,
-                      source_requirement_id INTEGER)"""
+                      source_requirement_id INTEGER, quality_evaluation_id INTEGER)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS corrective_action_attachments
+                     (id INTEGER PRIMARY KEY, corrective_action_id INTEGER NOT NULL,
+                      file_name TEXT NOT NULL, mime_type TEXT, file_data BLOB NOT NULL,
+                      created_at TEXT NOT NULL,
+                      FOREIGN KEY(corrective_action_id) REFERENCES corrective_actions(id) ON DELETE CASCADE)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS quality_evaluations
+                     (id INTEGER PRIMARY KEY, period TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+                      prepared_date TEXT, data_json TEXT NOT NULL,
+                      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS quality_attachments
+                     (id INTEGER PRIMARY KEY, evaluation_id INTEGER NOT NULL,
+                      file_name TEXT NOT NULL, mime_type TEXT, file_data BLOB NOT NULL,
+                      created_at TEXT NOT NULL,
+                      FOREIGN KEY(evaluation_id) REFERENCES quality_evaluations(id) ON DELETE CASCADE)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS quality_history
+                     (id INTEGER PRIMARY KEY, evaluation_id INTEGER,
+                      period TEXT, action TEXT NOT NULL, changed_at TEXT NOT NULL,
+                      changed_by TEXT, details TEXT)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS change_requests
+                     (id INTEGER PRIMARY KEY, request_number TEXT UNIQUE, submitted_date TEXT,
+                      proposer TEXT, department TEXT, contact TEXT, area TEXT, area_other TEXT,
+                      current_state TEXT, proposed_change TEXT, justification TEXT,
+                      impacts TEXT, impact_comment TEXT, owner_review_date TEXT,
+                      reviewed_by TEXT, process_status TEXT DEFAULT 'Nový',
+                      owner_reasoning TEXT, decision TEXT, decision_date TEXT,
+                      method_revision TEXT DEFAULT 'Ne', revision_number TEXT,
+                      process_owner TEXT, signature TEXT, created_at TEXT NOT NULL,
+                      updated_at TEXT NOT NULL, closed_at TEXT)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS job_evaluations
+                     (id INTEGER PRIMARY KEY, job_number TEXT, job_name TEXT, customer TEXT,
+                      project_manager TEXT, evaluation_date TEXT, status TEXT DEFAULT 'Rozpracováno',
+                      result TEXT DEFAULT 'Vyhovuje', planned_revenue REAL DEFAULT 0,
+                      actual_revenue REAL DEFAULT 0, planned_cost REAL DEFAULT 0,
+                      actual_cost REAL DEFAULT 0, planned_hours REAL DEFAULT 0,
+                      actual_hours REAL DEFAULT 0, planned_finish TEXT, actual_finish TEXT,
+                      schedule_variance_days REAL DEFAULT 0, quality_result TEXT,
+                      paint_defects REAL DEFAULT 0, mechanical_defects REAL DEFAULT 0,
+                      mechanical_rework_cost REAL DEFAULT 0, paint_rework_cost REAL DEFAULT 0,
+                      paint_defect_1 TEXT, paint_action_1 TEXT,
+                      paint_defect_2 TEXT, paint_action_2 TEXT,
+                      paint_defect_3 TEXT, paint_action_3 TEXT,
+                      mechanical_defect_1 TEXT, mechanical_action_1 TEXT,
+                      mechanical_defect_2 TEXT, mechanical_action_2 TEXT,
+                      mechanical_defect_3 TEXT, mechanical_action_3 TEXT,
+                      delivery_result TEXT, positives TEXT, negatives TEXT,
+                      corrective_actions TEXT, conclusion TEXT,
+                      created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+        )
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS suite_records
+                     (id INTEGER PRIMARY KEY, source TEXT NOT NULL, record_type TEXT NOT NULL,
+                      external_key TEXT NOT NULL UNIQUE, title TEXT, event_date TEXT,
+                      data_json TEXT NOT NULL, imported_at TEXT NOT NULL)"""
         )
         self.commit_database()
         self.ensure_meeting_columns()
@@ -76,7 +149,10 @@ class SchemaMixin:
         self.ensure_meeting_order_columns()
         self.ensure_meeting_requirement_columns()
         self.ensure_app_launcher_columns()
+        self.ensure_app_user_columns()
         self.ensure_corrective_action_columns()
+        self.ensure_change_request_columns()
+        self.ensure_job_evaluation_columns()
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_agenda_meeting_id ON agenda(meeting_id)")
@@ -98,6 +174,8 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_record ON change_history(record_type, record_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_change_history_meeting_id ON change_history(meeting_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_people_name ON people(name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users(username)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_app_users_role ON app_users(role)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_item_comments_record ON item_comments(record_type, record_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_app_launchers_order ON app_launchers(sort_order, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_actions_meeting_id ON corrective_actions(meeting_id)")
@@ -105,6 +183,21 @@ class SchemaMixin:
         c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_actions_due_date ON corrective_actions(due_date)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_actions_status ON corrective_actions(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_actions_source_requirement ON corrective_actions(source_requirement_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_actions_quality ON corrective_actions(quality_evaluation_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_corrective_action_attachments_action ON corrective_action_attachments(corrective_action_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quality_evaluations_period ON quality_evaluations(period)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quality_evaluations_updated_at ON quality_evaluations(updated_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quality_attachments_evaluation ON quality_attachments(evaluation_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quality_history_evaluation ON quality_history(evaluation_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_quality_history_changed_at ON quality_history(changed_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_change_requests_status ON change_requests(process_status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_change_requests_area ON change_requests(area)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_change_requests_submitted ON change_requests(submitted_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_job_evaluations_number ON job_evaluations(job_number)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_job_evaluations_status ON job_evaluations(status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_job_evaluations_date ON job_evaluations(evaluation_date)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_suite_records_source ON suite_records(source, record_type)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_suite_records_date ON suite_records(event_date)")
         self.commit_database()
         self.ensure_default_app_launchers()
         self.migrate_general_info_column()
@@ -124,6 +217,27 @@ class SchemaMixin:
         self.commit_database()
 
 
+    def ensure_app_user_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(app_users)")
+        columns = {row[1] for row in c.fetchall()}
+        column_definitions = {
+            "username": "TEXT",
+            "display_name": "TEXT",
+            "role": "TEXT DEFAULT 'reader'",
+            "password_salt": "TEXT DEFAULT ''",
+            "password_hash": "TEXT DEFAULT ''",
+            "is_active": "INTEGER DEFAULT 1",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+            "last_login": "TEXT",
+        }
+        for column, definition in column_definitions.items():
+            if column not in columns:
+                c.execute(f"ALTER TABLE app_users ADD COLUMN {column} {definition}")
+        self.commit_database()
+
+
     def ensure_default_app_launchers(self):
         c = self.conn.cursor()
         default_launchers = (
@@ -131,6 +245,10 @@ class SchemaMixin:
             ("Požadavky", "__REQUIREMENTS__", -90),
             ("Problémy a nápravná opatření", "__PROBLEMS__", -80),
             ("Vyhodnocení kvality", "__QUALITY__", -70),
+            ("Změnové řízení", "__CHANGE_MANAGEMENT__", -60),
+            ("Vyhodnocení zakázky", "__JOB_EVALUATION__", -50),
+            ("Externí firmy", "__EXTERNAL_COMPANIES__", -40),
+            ("Vstupní školení", "__ENTRY_TRAINING__", -30),
         )
         for name, target_path, sort_order in default_launchers:
             c.execute("SELECT id FROM app_launchers WHERE target_path=?", (target_path,))
@@ -138,9 +256,9 @@ class SchemaMixin:
             if row:
                 c.execute(
                     """UPDATE app_launchers
-                       SET name=?, sort_order=?, is_active=1
+                       SET name=?
                        WHERE id=?""",
-                    (name, sort_order, row[0]),
+                    (name, row[0]),
                 )
                 continue
             c.execute(
@@ -148,6 +266,95 @@ class SchemaMixin:
                    VALUES (?, ?, '', ?, 1)""",
                 (name, target_path, sort_order),
             )
+        self.commit_database()
+
+
+    def ensure_change_request_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(change_requests)")
+        columns = {row[1] for row in c.fetchall()}
+        column_definitions = {
+            "request_number": "TEXT",
+            "submitted_date": "TEXT",
+            "proposer": "TEXT",
+            "department": "TEXT",
+            "contact": "TEXT",
+            "area": "TEXT",
+            "area_other": "TEXT",
+            "current_state": "TEXT",
+            "proposed_change": "TEXT",
+            "justification": "TEXT",
+            "impacts": "TEXT",
+            "impact_comment": "TEXT",
+            "owner_review_date": "TEXT",
+            "reviewed_by": "TEXT",
+            "process_status": "TEXT DEFAULT 'Nový'",
+            "owner_reasoning": "TEXT",
+            "decision": "TEXT",
+            "decision_date": "TEXT",
+            "method_revision": "TEXT DEFAULT 'Ne'",
+            "revision_number": "TEXT",
+            "process_owner": "TEXT",
+            "signature": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+            "closed_at": "TEXT",
+        }
+        for column, definition in column_definitions.items():
+            if column not in columns:
+                c.execute(f"ALTER TABLE change_requests ADD COLUMN {column} {definition}")
+        self.commit_database()
+
+
+    def ensure_job_evaluation_columns(self):
+        c = self.conn.cursor()
+        c.execute("PRAGMA table_info(job_evaluations)")
+        columns = {row[1] for row in c.fetchall()}
+        column_definitions = {
+            "job_number": "TEXT",
+            "job_name": "TEXT",
+            "customer": "TEXT",
+            "project_manager": "TEXT",
+            "evaluation_date": "TEXT",
+            "status": "TEXT DEFAULT 'Rozpracováno'",
+            "result": "TEXT DEFAULT 'Vyhovuje'",
+            "planned_revenue": "REAL DEFAULT 0",
+            "actual_revenue": "REAL DEFAULT 0",
+            "planned_cost": "REAL DEFAULT 0",
+            "actual_cost": "REAL DEFAULT 0",
+            "paint_defects": "REAL DEFAULT 0",
+            "mechanical_defects": "REAL DEFAULT 0",
+            "mechanical_rework_cost": "REAL DEFAULT 0",
+            "paint_rework_cost": "REAL DEFAULT 0",
+            "paint_defect_1": "TEXT",
+            "paint_action_1": "TEXT",
+            "paint_defect_2": "TEXT",
+            "paint_action_2": "TEXT",
+            "paint_defect_3": "TEXT",
+            "paint_action_3": "TEXT",
+            "mechanical_defect_1": "TEXT",
+            "mechanical_action_1": "TEXT",
+            "mechanical_defect_2": "TEXT",
+            "mechanical_action_2": "TEXT",
+            "mechanical_defect_3": "TEXT",
+            "mechanical_action_3": "TEXT",
+            "planned_hours": "REAL DEFAULT 0",
+            "actual_hours": "REAL DEFAULT 0",
+            "planned_finish": "TEXT",
+            "actual_finish": "TEXT",
+            "schedule_variance_days": "REAL DEFAULT 0",
+            "quality_result": "TEXT",
+            "delivery_result": "TEXT",
+            "positives": "TEXT",
+            "negatives": "TEXT",
+            "corrective_actions": "TEXT",
+            "conclusion": "TEXT",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        }
+        for column, definition in column_definitions.items():
+            if column not in columns:
+                c.execute(f"ALTER TABLE job_evaluations ADD COLUMN {column} {definition}")
         self.commit_database()
 
 
@@ -175,6 +382,8 @@ class SchemaMixin:
             c.execute("ALTER TABLE corrective_actions ADD COLUMN completed_at TEXT")
         if "source_requirement_id" not in columns:
             c.execute("ALTER TABLE corrective_actions ADD COLUMN source_requirement_id INTEGER")
+        if "quality_evaluation_id" not in columns:
+            c.execute("ALTER TABLE corrective_actions ADD COLUMN quality_evaluation_id INTEGER")
         self.commit_database()
 
 

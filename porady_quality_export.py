@@ -35,7 +35,7 @@ def _section(title: str, content: str, *, page_break: bool = False) -> str:
     return f"<section{css_class}><h2>{_escape(title)}</h2>{content}</section>"
 
 
-def _build_html(data: dict) -> str:
+def _build_html(data: dict, *, auto_print: bool = False) -> str:
     meta = data["metadata"]
     generated = datetime.now().strftime("%d.%m.%Y %H:%M")
     parts = [
@@ -137,6 +137,27 @@ def _build_html(data: dict) -> str:
             ),
         ),
     ]
+    attachments = data.get("attachments", [])
+    if attachments:
+        attachment_items = []
+        for attachment in attachments:
+            preview = ""
+            if attachment.get("data_uri"):
+                preview = (
+                    f'<img class="attachment-image" src="{attachment["data_uri"]}" '
+                    f'alt="{_escape(attachment.get("name", ""))}">'
+                )
+            attachment_items.append(
+                '<div class="attachment">'
+                f'<strong>{_escape(attachment.get("name", ""))}</strong>'
+                f'<div class="attachment-type">{_escape(attachment.get("mime_type", ""))}</div>'
+                f"{preview}</div>"
+            )
+        parts.append(_section("11. Přílohy a fotografie", "".join(attachment_items), page_break=True))
+    print_script = (
+        '<script>window.addEventListener("load", () => window.print());</script>'
+        if auto_print else ""
+    )
     return f"""<!doctype html>
 <html lang="cs">
 <head>
@@ -162,6 +183,9 @@ def _build_html(data: dict) -> str:
     th {{ background: var(--blue); color: white; }}
     tbody tr:nth-child(even) td {{ background: var(--soft); }}
     .empty {{ text-align: center; color: #667085; font-style: italic; }}
+    .attachment {{ border: 1px solid var(--line); padding: 12px; margin: 10px 0; break-inside: avoid; }}
+    .attachment-type {{ color: #667085; font-size: 12px; margin: 3px 0 8px; }}
+    .attachment-image {{ display: block; max-width: 100%; max-height: 155mm; margin: 8px auto 0; object-fit: contain; }}
     footer {{ margin-top: 30px; color: #667085; font-size: 12px; text-align: right; }}
     @media print {{
       @page {{ size: A4 landscape; margin: 12mm; }}
@@ -194,16 +218,17 @@ def _build_html(data: dict) -> str:
   {''.join(parts)}
   <footer>HTML export vytvořen {generated}</footer>
 </main>
+{print_script}
 </body>
 </html>
 """
 
 
-def export_html(data: dict, output_path: str) -> str:
+def export_html(data: dict, output_path: str, *, auto_print: bool = False) -> str:
     output_path = os.path.abspath(output_path)
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     with open(output_path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(_build_html(data))
+        handle.write(_build_html(data, auto_print=auto_print))
     return output_path

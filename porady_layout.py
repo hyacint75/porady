@@ -4,10 +4,11 @@ import getpass
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
+from datetime import datetime
 from pathlib import Path
 from tkinter import ttk
 
-from porady_widgets import RoundedFrame
+from porady_widgets import RoundedFrame, bind_mousewheel_to_canvas
 
 
 class LayoutMixin:
@@ -36,8 +37,16 @@ class LayoutMixin:
 
 
     def on_close(self):
-        if self.can_edit() and self.current_id and self.notes_dirty:
-            self.save_notes(show_message=False)
+        workspace_open = (
+            hasattr(self, "left_frame")
+            and self.left_frame.winfo_exists()
+            and self.left_frame.winfo_ismapped()
+        )
+        if workspace_open:
+            if self.can_edit() and self.current_id and self.notes_dirty:
+                self.save_notes(show_message=False)
+            self.show_launcher_home()
+            return
         self.conn.close()
         self.root.destroy()
 
@@ -64,6 +73,8 @@ class LayoutMixin:
 
 
     def create_layout(self):
+        self.create_database_status_bar()
+
         self.left_frame = tk.Frame(self.root, width=310, bg=self.COLORS["sidebar"])
         self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
         self.left_frame.pack_propagate(False)
@@ -75,61 +86,440 @@ class LayoutMixin:
         self.create_detail_panel()
 
 
+    def create_database_status_bar(self):
+        self.database_status_bar = tk.Frame(
+            self.root,
+            bg="#e2e8f0",
+            height=30,
+            padx=12,
+            pady=5,
+            cursor="hand2",
+        )
+        self.database_status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.database_status_bar.pack_propagate(False)
+        self.lbl_database_status = tk.Label(
+            self.database_status_bar,
+            text="",
+            font=(self.FONT, 9, "bold"),
+            bg="#e2e8f0",
+            fg=self.COLORS["text"],
+            anchor="w",
+            cursor="hand2",
+        )
+        self.lbl_database_status.pack(fill=tk.X)
+        self.database_status_bar.bind("<Button-1>", lambda _event: self.show_data_settings())
+        self.lbl_database_status.bind("<Button-1>", lambda _event: self.show_data_settings())
+        self.update_database_status()
+
+
+    def update_database_status(self):
+        if not hasattr(self, "lbl_database_status"):
+            return
+
+        if getattr(self, "database_fallback_active", False):
+            label = "MÍSTNÍ NÁHRADNÍ DB"
+            background = "#fef3c7"
+            foreground = "#92400e"
+        elif self.is_local_database():
+            label = "MÍSTNÍ DB"
+            background = "#dcfce7"
+            foreground = "#166534"
+        else:
+            label = "SDÍLENÁ DB"
+            background = "#dbeafe"
+            foreground = "#1d4ed8"
+
+        text = f"{label}  |  {self.db_path}"
+        self.database_status_bar.config(bg=background)
+        self.lbl_database_status.config(text=text, bg=background, fg=foreground)
+
+
     def show_launcher_home(self):
         if hasattr(self, "left_frame"):
             self.left_frame.pack_forget()
         if hasattr(self, "right_frame"):
             self.right_frame.pack_forget()
-        if hasattr(self, "launcher_home_frame"):
+        if (
+            hasattr(self, "launcher_home_shell")
+            and self.launcher_home_shell is not None
+            and self.launcher_home_shell.winfo_exists()
+        ):
+            self.launcher_home_shell.destroy()
+        elif (
+            hasattr(self, "launcher_home_frame")
+            and self.launcher_home_frame is not None
+            and self.launcher_home_frame.winfo_exists()
+        ):
             self.launcher_home_frame.destroy()
+        self.launcher_home_shell = None
+        self.launcher_canvas = None
+        self.launcher_scrollbar = None
+        self.launcher_home_frame = None
         self.root.configure(bg=self.COLORS["app_bg"])
         self.root.title(f"Rozcestník aplikací {self.APP_VERSION}")
-        self.launcher_home_frame = tk.Frame(self.root, bg=self.COLORS["app_bg"], padx=32, pady=30)
-        self.launcher_home_frame.pack(fill=tk.BOTH, expand=True)
+        portal_bg = "#f8fafc"
+        self.root.configure(bg=portal_bg)
+        self.launcher_home_shell = tk.Frame(self.root, bg=portal_bg)
+        self.launcher_home_shell.pack(fill=tk.BOTH, expand=True)
+        self.launcher_canvas = tk.Canvas(
+            self.launcher_home_shell,
+            bg=portal_bg,
+            highlightthickness=0,
+            borderwidth=0,
+        )
+        self.launcher_scrollbar = ttk.Scrollbar(
+            self.launcher_home_shell,
+            orient=tk.VERTICAL,
+            command=self.launcher_canvas.yview,
+        )
+        self.launcher_canvas.configure(yscrollcommand=self.launcher_scrollbar.set)
+        self.launcher_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.launcher_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.launcher_home_frame = tk.Frame(self.launcher_canvas, bg=portal_bg, padx=52, pady=28)
+        self.launcher_window_id = self.launcher_canvas.create_window(
+            (0, 0),
+            window=self.launcher_home_frame,
+            anchor="nw",
+        )
+        self.launcher_home_frame.bind(
+            "<Configure>",
+            lambda _event: self.launcher_canvas.configure(scrollregion=self.launcher_canvas.bbox("all")),
+        )
+        self.launcher_canvas.bind(
+            "<Configure>",
+            lambda event: self.launcher_canvas.itemconfigure(self.launcher_window_id, width=event.width),
+        )
 
+        header = tk.Frame(self.launcher_home_frame, bg=portal_bg)
+        header.pack(fill=tk.X)
+        brand = tk.Frame(header, bg=portal_bg)
+        brand.grid(row=0, column=0, sticky="nw")
+        header.columnconfigure(0, weight=1, uniform="launcher_header")
+        header.columnconfigure(1, weight=1, uniform="launcher_header")
+        header.columnconfigure(2, weight=1, uniform="launcher_header")
+        if getattr(self, "logo_image", None):
+            tk.Label(brand, image=self.logo_image, bg=portal_bg).pack(anchor="w")
+        else:
+            tk.Label(brand, text="SVOS", font=(self.FONT, 26, "bold"), bg=portal_bg, fg="#111827").pack(anchor="w")
         tk.Label(
-            self.launcher_home_frame,
-            text="Řídicí panel",
-            font=(self.FONT, 24, "bold"),
-            bg=self.COLORS["app_bg"],
-            fg=self.COLORS["text"],
-        ).pack(anchor="w")
-        tk.Label(
-            self.launcher_home_frame,
-            text="Souhrn otevřených položek napříč aplikacemi.",
+            brand,
+            text="Organizace: SVOS, spol. s r.o.",
             font=(self.FONT, 11),
-            bg=self.COLORS["app_bg"],
-            fg=self.COLORS["muted"],
-        ).pack(anchor="w", pady=(4, 22))
+            bg=portal_bg,
+            fg="#334155",
+        ).pack(anchor="w", pady=(18, 0))
+
+        clock_panel = tk.Frame(header, bg=portal_bg)
+        clock_panel.grid(row=0, column=1, sticky="n")
+        self.launcher_clock_time_var = tk.StringVar(value="")
+        self.launcher_clock_date_var = tk.StringVar(value="")
+        tk.Label(
+            clock_panel,
+            textvariable=self.launcher_clock_time_var,
+            font=("Consolas", 40, "bold"),
+            bg=portal_bg,
+            fg="#020617",
+        ).pack(anchor="center")
+        tk.Label(
+            clock_panel,
+            textvariable=self.launcher_clock_date_var,
+            font=(self.FONT, 10, "bold"),
+            bg=portal_bg,
+            fg="#475569",
+        ).pack(anchor="center", pady=(2, 0))
+        self.update_launcher_clock()
+
+        header_actions = tk.Frame(header, bg=portal_bg)
+        header_actions.grid(row=0, column=2, sticky="ne")
+        for text, command, color in (
+            ("...", self.show_virtual_assistant, "#3557ff"),
+            ("!", self.show_global_deadlines, "#3557ff"),
+            ("●", self.toggle_admin_login, "#3557ff"),
+            ("⚙", self.show_app_launcher_dialog, "#3557ff"),
+            ("↪", self.show_porady_workspace, "#e11d48"),
+        ):
+            action = tk.Label(
+                header_actions,
+                text=text,
+                width=2,
+                font=(self.FONT, 19 if text == "⚙" else 18, "bold"),
+                bg=portal_bg,
+                fg=color,
+                cursor="hand2",
+            )
+            action.pack(side=tk.LEFT, padx=(16, 0))
+            action.bind("<Button-1>", lambda _event, callback=command: callback())
 
         summary = self.get_launcher_dashboard_summary()
-        grid = tk.Frame(self.launcher_home_frame, bg=self.COLORS["app_bg"])
-        grid.pack(fill=tk.X)
-        items = (
-            ("open_tasks", "Otevřené úkoly", self.COLORS["page_tasks_accent"]),
-            ("open_orders", "Otevřená nařízení", self.COLORS["page_orders_accent"]),
-            ("open_requirements", "Otevřené požadavky", self.COLORS["page_requirements_accent"]),
-            ("open_problems", "Otevřené problémy", self.COLORS["page_problems_accent"]),
-        )
-        for column, (key, title, color) in enumerate(items):
-            grid.columnconfigure(column, weight=1, uniform="launcher_dashboard")
-            tile = tk.Frame(grid, bg=self.COLORS["panel"], padx=18, pady=16, highlightthickness=1, highlightbackground=self.COLORS["border"])
-            tile.grid(row=0, column=column, sticky="ew", padx=(0, 10 if column < len(items) - 1 else 0))
-            tk.Label(tile, text=title, font=(self.FONT, 10, "bold"), bg=self.COLORS["panel"], fg=self.COLORS["muted"]).pack(anchor="w")
-            tk.Label(tile, text=str(summary[key]), font=(self.FONT, 26, "bold"), bg=self.COLORS["panel"], fg=color).pack(anchor="w", pady=(8, 0))
+        suite_summary = self.get_suite_dashboard_summary()
 
         tk.Label(
             self.launcher_home_frame,
-            text="Okno rozcestníku otevře seznam aplikací. Tento panel zůstává jako rychlý přehled.",
+            text="Přehled modulů",
+            font=(self.FONT, 15, "bold"),
+            bg=portal_bg,
+            fg="#020617",
+        ).pack(anchor="w", pady=(20, 20))
+
+        modules = (
+            {
+                "title": "Porady a zápisy",
+                "description": "Hlavní agenda porad, zápisů, bodů jednání a navazujících úkolů.",
+                "icon": "▣",
+                "accent": "#ea580c",
+                "soft": "#fff8ed",
+                "badges": (("Otevřené úkoly", str(summary["open_tasks"]), "#dff5f5"),),
+                "command": self.show_porady_workspace,
+            },
+            {
+                "title": "Virtuální asistent",
+                "description": "Chat nad firemními daty, poradami a integrovanými aplikacemi.",
+                "icon": "✦",
+                "accent": "#8a00ff",
+                "soft": "#f5e8ff",
+                "badges": (("Aktivní chaty", "0", "#ead7ff"),),
+                "command": self.show_virtual_assistant,
+            },
+            {
+                "title": "Globální hledání",
+                "description": "Vyhledávání napříč poradami, úkoly, požadavky, opatřeními a aplikacemi.",
+                "icon": "⌕",
+                "accent": "#3557ff",
+                "soft": "#eef4ff",
+                "badges": (),
+                "command": self.show_global_search,
+            },
+            {
+                "title": "Požadavky",
+                "description": "Evidence požadavků z porad, jejich stav, odpovědnost a plnění.",
+                "icon": "✓",
+                "accent": "#d97706",
+                "soft": "#fff7ed",
+                "badges": (("Otevřené požadavky", str(summary["open_requirements"]), "#fff0d8"),),
+                "command": self.show_requirements_application,
+            },
+            {
+                "title": "Problémy a opatření",
+                "description": "Řešení problémů, nápravná opatření, termíny a vazby na kvalitu.",
+                "icon": "!",
+                "accent": "#0f766e",
+                "soft": "#eefffd",
+                "badges": (("Otevřené problémy", str(summary["open_problems"]), "#dff5f5"), ("Po termínu", str(suite_summary["corrective_overdue"]), "#fde8df")),
+                "command": self.show_problems_application,
+            },
+            {
+                "title": "Měsíční vyhodnocení kvality",
+                "description": "Měsíční souhrny kvality, reklamace, neshody, rizika a opatření.",
+                "icon": "Q",
+                "accent": "#1f4e78",
+                "soft": "#f1f6ff",
+                "badges": (("Vyhodnocení", str(suite_summary["quality"]), "#e6ebff"),),
+                "command": self.show_quality_application,
+            },
+            {
+                "title": "Vyhodnocení zakázky",
+                "description": "Hodnocení zakázek podle financí, hodin, termínu, kvality a dodání.",
+                "icon": "▭",
+                "accent": "#0e7490",
+                "soft": "#ecfeff",
+                "badges": (("Záznamy", str(suite_summary["job_evaluations"]), "#dff5f5"),),
+                "command": self.show_job_evaluation_application,
+            },
+            {
+                "title": "Změnové řízení",
+                "description": "Změnové podněty, posouzení, rozhodnutí a sledování realizace.",
+                "icon": "Z",
+                "accent": "#4f46e5",
+                "soft": "#eef2ff",
+                "badges": (("Podněty", str(suite_summary["change_requests"]), "#e6ebff"), ("K posouzení", str(suite_summary["change_pending"]), "#fff0d8")),
+                "command": self.show_change_management_application,
+            },
+            {
+                "title": "Společné termíny",
+                "description": "Souhrn otevřených termínů z úkolů, nařízení, požadavků a opatření.",
+                "icon": "▦",
+                "accent": "#8a00ff",
+                "soft": "#f8f0ff",
+                "badges": (("Aktivních záznamů", str(summary["open_tasks"] + summary["open_orders"] + summary["open_requirements"]), "#ead7ff"),),
+                "command": self.show_global_deadlines,
+            },
+            {
+                "title": "Souhrnné exporty",
+                "description": "Exporty a přehledy dat z porad i připojených agend.",
+                "icon": "⌁",
+                "accent": "#16803d",
+                "soft": "#ecfff5",
+                "badges": (),
+                "command": self.show_suite_exports,
+            },
+            {
+                "title": "Administrace",
+                "description": "Správa admin režimu, rozcestníku, databáze, záloh a provozních kontrol.",
+                "icon": "A",
+                "accent": "#dc2626",
+                "soft": "#fff1f2",
+                "badges": (("Režim", "Admin" if self.can_edit() else "Jen čtení", "#fee2e2" if self.can_edit() else "#e6ebff"),),
+                "command": self.show_admin_launcher,
+            },
+            {
+                "title": "Školení externích firem",
+                "description": "Integrovaná evidence školení a testů pro externí společnosti.",
+                "icon": "E",
+                "accent": "#b45309",
+                "soft": "#fff7ed",
+                "badges": (("Záznamy školení", str(suite_summary["trainings"]), "#fff0d8"),),
+                "command": self.show_external_companies_application,
+            },
+            {
+                "title": "Školení zaměstnanců",
+                "description": "Integrovaná agenda vstupního školení zaměstnanců a výsledků testů.",
+                "icon": "V",
+                "accent": "#047857",
+                "soft": "#ecfff5",
+                "badges": (("Předání pracovišť", str(suite_summary["handovers"]), "#e4f4e9"),),
+                "command": self.show_entry_training_application,
+            },
+        )
+
+        module_grid = tk.Frame(self.launcher_home_frame, bg=portal_bg)
+        module_grid.pack(fill=tk.BOTH, expand=True)
+        for column in range(3):
+            module_grid.columnconfigure(column, weight=1, uniform="portal_modules")
+        for index, module in enumerate(modules):
+            row, column = divmod(index, 3)
+            self.create_portal_module_card(module_grid, module, row, column)
+
+        bind_mousewheel_to_canvas(self.launcher_canvas, self.launcher_home_frame)
+
+
+    def create_portal_module_card(self, parent, module, row, column):
+        card = RoundedFrame(
+            parent,
+            radius=12,
+            background="#ffffff",
+            border="#d9dee7",
+            border_width=1,
+            padding=0,
+            height=162,
+            bg=parent.cget("bg"),
+            cursor="hand2",
+        )
+        card.grid(
+            row=row,
+            column=column,
+            sticky="nsew",
+            padx=(0, 16 if column < 2 else 0),
+            pady=(0, 16),
+        )
+        inner = card.inner
+        inner.configure(bg="#ffffff", padx=18, pady=18, cursor="hand2")
+
+        icon_box = tk.Frame(inner, bg=module["soft"], width=56, height=56, cursor="hand2")
+        icon_box.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 18))
+        icon_box.grid_propagate(False)
+        tk.Label(
+            icon_box,
+            text=module["icon"],
+            font=(self.FONT, 25, "bold"),
+            bg=module["soft"],
+            fg=module["accent"],
+            cursor="hand2",
+        ).place(relx=0.5, rely=0.5, anchor="center")
+
+        title = tk.Label(
+            inner,
+            text=module["title"],
+            font=(self.FONT, 11, "bold"),
+            bg="#ffffff",
+            fg="#020617",
+            anchor="w",
+            cursor="hand2",
+        )
+        title.grid(row=0, column=1, sticky="ew", padx=(0, 16))
+
+        dots = tk.Label(
+            inner,
+            text="⋮",
+            font=(self.FONT, 17, "bold"),
+            bg="#ffffff",
+            fg="#0f3f69",
+            cursor="hand2",
+        )
+        dots.grid(row=0, column=2, sticky="ne")
+
+        description = tk.Label(
+            inner,
+            text=module["description"],
             font=(self.FONT, 10),
-            bg=self.COLORS["app_bg"],
-            fg=self.COLORS["muted"],
-        ).pack(anchor="w", pady=(20, 0))
+            bg="#ffffff",
+            fg="#334155",
+            anchor="nw",
+            justify=tk.LEFT,
+            wraplength=260,
+            cursor="hand2",
+        )
+        description.grid(row=1, column=1, columnspan=2, sticky="new", pady=(10, 0))
+
+        badges_frame = tk.Frame(inner, bg="#ffffff", cursor="hand2")
+        badges_frame.grid(row=2, column=1, columnspan=2, sticky="sw", pady=(14, 0))
+        for label, value, color in module["badges"]:
+            badge = tk.Label(
+                badges_frame,
+                text=f"{label}: {value}",
+                font=(self.FONT, 10, "bold"),
+                bg=color,
+                fg="#334155",
+                padx=12,
+                pady=4,
+                cursor="hand2",
+            )
+            badge.pack(side=tk.LEFT, padx=(0, 8))
+
+        inner.columnconfigure(1, weight=1)
+        inner.rowconfigure(1, weight=1)
+
+        def bind_click(widget):
+            widget.bind("<Button-1>", lambda _event, callback=module["command"]: callback())
+            widget.bind("<Enter>", lambda _event: card.configure(cursor="hand2"))
+            for child in widget.winfo_children():
+                bind_click(child)
+
+        bind_click(card)
+
+
+    def scroll_launcher_home(self, event):
+        canvas = getattr(self, "launcher_canvas", None)
+        if canvas is not None and canvas.winfo_exists():
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+
+    def show_admin_launcher(self):
+        self.show_admin_dashboard()
+
+
+    def update_launcher_clock(self):
+        clock_var = getattr(self, "launcher_clock_time_var", None)
+        date_var = getattr(self, "launcher_clock_date_var", None)
+        shell = getattr(self, "launcher_home_shell", None)
+        if clock_var is None or date_var is None or shell is None or not shell.winfo_exists():
+            return
+
+        now = datetime.now()
+        clock_var.set(now.strftime("%H:%M:%S"))
+        date_var.set(now.strftime("%d.%m.%Y"))
+        shell.after(1000, self.update_launcher_clock)
 
 
     def show_porady_workspace(self):
-        if hasattr(self, "launcher_home_frame"):
-            self.launcher_home_frame.destroy()
+        self.root.unbind_all("<MouseWheel>")
+        if (
+            hasattr(self, "launcher_home_shell")
+            and self.launcher_home_shell is not None
+            and self.launcher_home_shell.winfo_exists()
+        ):
+            self.launcher_home_shell.destroy()
+        self.launcher_home_frame = None
+        self.launcher_home_shell = None
         if hasattr(self, "left_frame") and not self.left_frame.winfo_ismapped():
             self.left_frame.pack(side=tk.LEFT, fill=tk.Y)
         if hasattr(self, "right_frame") and not self.right_frame.winfo_ismapped():
@@ -141,14 +531,13 @@ class LayoutMixin:
             self.refresh_due_date_choices()
             self.load_meetings()
             self.porady_workspace_loaded = True
-            self.root.after(900, self.show_startup_reminders)
 
 
     def show_requirements_application(self):
         self.show_launcher_home()
         self.show_requirement_overview(
             standalone=True,
-            close_callback=self.show_app_launcher_dialog,
+            close_callback=self.show_launcher_home,
         )
 
 
@@ -184,7 +573,7 @@ class LayoutMixin:
         self.show_launcher_home()
         self.show_problem_overview(
             standalone=True,
-            close_callback=self.show_app_launcher_dialog,
+            close_callback=self.show_launcher_home,
         )
 
     def show_quality_application(self):
@@ -197,15 +586,118 @@ class LayoutMixin:
             current_window.focus_force()
             return
 
-        self.quality_window = QualityApp(self.root)
+        self.quality_window = QualityApp(
+            self.root,
+            connection=self.conn,
+            commit_callback=self.commit_database,
+            on_home=self.show_launcher_home,
+        )
 
         def close_quality():
             self.quality_window.destroy()
             self.quality_window = None
-            self.show_app_launcher_dialog()
+            self.show_launcher_home()
 
         self.quality_window.protocol("WM_DELETE_WINDOW", close_quality)
         self.quality_window.focus_set()
+
+    def show_change_management_application(self):
+        from porady_changes import ChangeManagementApp
+
+        current_window = getattr(self, "change_management_window", None)
+        if current_window is not None and current_window.winfo_exists():
+            current_window.deiconify()
+            current_window.lift()
+            current_window.focus_force()
+            return
+
+        self.change_management_window = ChangeManagementApp(
+            self.root,
+            connection=self.conn,
+            commit_callback=self.commit_database,
+            can_edit_callback=self.can_edit,
+            require_admin_callback=self.require_admin,
+            toggle_admin_callback=self.toggle_admin_login,
+            on_home=self.show_launcher_home,
+            colors=self.COLORS,
+            font=self.FONT,
+        )
+
+        def close_change_management():
+            self.change_management_window.destroy()
+            self.change_management_window = None
+            self.show_launcher_home()
+
+        self.change_management_window.protocol("WM_DELETE_WINDOW", close_change_management)
+        self.change_management_window.focus_set()
+
+    def show_job_evaluation_application(self):
+        from porady_job_evaluation import JobEvaluationApp
+
+        current_window = getattr(self, "job_evaluation_window", None)
+        if current_window is not None and current_window.winfo_exists():
+            current_window.deiconify()
+            current_window.lift()
+            current_window.focus_force()
+            return
+
+        self.job_evaluation_window = JobEvaluationApp(
+            self.root,
+            connection=self.conn,
+            commit_callback=self.commit_database,
+            can_edit_callback=self.can_edit,
+            require_admin_callback=self.require_admin,
+            toggle_admin_callback=self.toggle_admin_login,
+            on_home=self.show_launcher_home,
+            colors=self.COLORS,
+            font=self.FONT,
+        )
+
+        def close_job_evaluation():
+            self.job_evaluation_window.destroy()
+            self.job_evaluation_window = None
+            self.show_launcher_home()
+
+        self.job_evaluation_window.protocol("WM_DELETE_WINDOW", close_job_evaluation)
+        self.job_evaluation_window.focus_set()
+
+    def show_virtual_assistant(self):
+        from porady_assistant import VirtualAssistant
+
+        current_window = getattr(self, "virtual_assistant_window", None)
+        if current_window is not None and current_window.winfo_exists():
+            current_window.deiconify()
+            current_window.lift()
+            current_window.focus_force()
+            return
+
+        self.virtual_assistant_window = VirtualAssistant(
+            self.root,
+            collect_search_rows=self._collect_search_rows,
+            open_search_result=self._open_global_search_result,
+            collect_deadlines=self._collect_deadlines,
+            app_actions={
+                "meetings": self.show_porady_workspace,
+                "requirements": self.show_requirements_application,
+                "problems": self.show_problems_application,
+                "quality": self.show_quality_application,
+                "change_management": self.show_change_management_application,
+                "job_evaluation": self.show_job_evaluation_application,
+                "external_companies": self.show_external_companies_application,
+                "entry_training": self.show_entry_training_application,
+            },
+            on_home=self.show_launcher_home,
+            colors=self.COLORS,
+            font=self.FONT,
+        )
+
+        def close_assistant():
+            self.virtual_assistant_window.destroy()
+            self.virtual_assistant_window = None
+            self.show_launcher_home()
+
+        self.virtual_assistant_window.protocol("WM_DELETE_WINDOW", close_assistant)
+        self.virtual_assistant_window.focus_set()
 
 
     def get_my_owner_value(self):
@@ -425,8 +917,8 @@ class LayoutMixin:
 
         self.create_button(
             sidebar_actions,
-            text="Rozcestník aplikací",
-            command=self.show_app_launcher_dialog,
+            text="← Rozcestník",
+            command=self.show_launcher_home,
             variant="secondary",
         ).pack(fill=tk.X, pady=(0, 8))
 
@@ -459,8 +951,7 @@ class LayoutMixin:
             command=self.show_data_settings,
             variant="secondary",
         )
-        if self.can_edit():
-            self.btn_data_settings.pack(fill=tk.X, pady=(0, 8))
+        self.btn_data_settings.pack(fill=tk.X, pady=(0, 8))
 
         self.btn_login = self.create_button(
             sidebar_actions,
@@ -1251,14 +1742,11 @@ class LayoutMixin:
             )
 
         if hasattr(self, "btn_data_settings"):
-            if self.can_edit():
-                if not self.btn_data_settings.winfo_ismapped():
-                    pack_options = {"fill": tk.X, "pady": (0, 8)}
-                    if hasattr(self, "btn_login"):
-                        pack_options["before"] = self.btn_login
-                    self.btn_data_settings.pack(**pack_options)
-            else:
-                self.btn_data_settings.pack_forget()
+            if not self.btn_data_settings.winfo_ismapped():
+                pack_options = {"fill": tk.X, "pady": (0, 8)}
+                if hasattr(self, "btn_login"):
+                    pack_options["before"] = self.btn_login
+                self.btn_data_settings.pack(**pack_options)
 
         if hasattr(self, "btn_people_manager"):
             if self.can_edit():
@@ -1284,11 +1772,11 @@ class LayoutMixin:
                 button.config(state=edit_state)
 
         for button in getattr(self, "requirement_tab_edit_buttons", []):
-            button.config(state=edit_state)
+            button.config(state=tk.NORMAL)
         for button in getattr(self, "order_tab_edit_buttons", []):
             button.config(state=edit_state)
         for button in getattr(self, "problem_tab_edit_buttons", []):
-            button.config(state=edit_state)
+            button.config(state=tk.NORMAL)
 
         for button_name in (
             "btn_edit_date",

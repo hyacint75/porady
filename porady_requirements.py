@@ -200,7 +200,6 @@ class RequirementMixin:
             text="Nový požadavek",
             command=lambda: self.show_requirement_dialog(refresh_callback=refresh),
             variant="primary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT)
         edit_buttons.append(button)
@@ -210,7 +209,6 @@ class RequirementMixin:
             text="Upravit vybrané",
             command=lambda: self.open_selected_requirement_dialog(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -220,7 +218,6 @@ class RequirementMixin:
             text="Smazat vybrané",
             command=lambda: self.delete_selected_requirement(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -230,7 +227,6 @@ class RequirementMixin:
             text="Vytvořit úkol",
             command=lambda: self.create_task_from_selected_requirement(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -240,7 +236,6 @@ class RequirementMixin:
             text="Převést na problém",
             command=lambda: self.create_problem_from_selected_requirement(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -250,7 +245,6 @@ class RequirementMixin:
             text="Otevřít problém",
             command=lambda: self.open_selected_requirement_problem(tree, refresh),
             variant="secondary",
-            state=tk.NORMAL if self.can_edit() else tk.DISABLED,
         )
         button.pack(side=tk.LEFT, padx=(10, 0))
         edit_buttons.append(button)
@@ -264,22 +258,9 @@ class RequirementMixin:
 
         self.create_button(actions, text="Obnovit", command=refresh, variant="secondary").pack(side=tk.LEFT, padx=(10, 0))
         if standalone:
-            self.create_button(actions, text="Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
+            self.create_button(actions, text="← Rozcestník", command=close_overview, variant="secondary").pack(side=tk.RIGHT)
         elif not embedded:
             self.create_button(actions, text="Zavřít", command=dialog.destroy, variant="secondary").pack(side=tk.RIGHT)
-
-        if not embedded:
-            def toggle_admin_from_requirements():
-                self.toggle_admin_login()
-                dialog.destroy()
-                self.show_requirement_overview(standalone=standalone, close_callback=close_callback)
-
-            self.create_button(
-                actions,
-                text="Odhlásit admina" if self.can_edit() else "Admin",
-                command=toggle_admin_from_requirements,
-                variant="secondary",
-            ).pack(side=tk.RIGHT, padx=(0, 10))
 
         if embedded:
             self.requirement_tab_refresh = refresh
@@ -454,9 +435,6 @@ class RequirementMixin:
 
 
     def show_requirement_dialog(self, requirement_id=None, refresh_callback=None):
-        if not self.require_admin():
-            return
-
         choices, meeting_mapping = self.get_meeting_choices()
         if not choices:
             messagebox.showwarning("Požadavky", "Nejprve vytvořte poradu, ze které požadavek vychází.")
@@ -732,9 +710,6 @@ class RequirementMixin:
 
 
     def delete_selected_requirement(self, tree, refresh_callback=None):
-        if not self.require_admin():
-            return
-
         selection = tree.selection()
         if not selection:
             messagebox.showwarning("Přehled požadavků", "Nejprve vyberte požadavek.")
@@ -769,9 +744,6 @@ class RequirementMixin:
 
 
     def create_task_from_requirement(self, requirement_id, refresh_callback=None):
-        if not self.require_admin():
-            return
-
         row = self.fetch_requirement_detail(requirement_id)
         if not row:
             messagebox.showwarning("Požadavky", "Vybraný požadavek už neexistuje.")
@@ -840,9 +812,6 @@ class RequirementMixin:
 
 
     def create_problem_from_requirement(self, requirement_id, refresh_callback=None):
-        if not self.require_admin():
-            return
-
         row = self.fetch_requirement_detail(requirement_id)
         if not row:
             messagebox.showwarning("Požadavky", "Vybraný požadavek už neexistuje.")
